@@ -33,11 +33,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
 .card ol b{color:var(--text);}
 .card ol code{background:#0b0e13;padding:1px 6px;border-radius:4px;color:var(--a);
   font-family:ui-monospace,monospace;font-size:.9em;}
-.card .kbdline{
-  margin-top:20px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);
-  border-radius:8px;font-size:.82rem;color:var(--sub);line-height:2;
-}
-.card .kbdline b{color:var(--text);}
 .splashContact{
   margin:16px 0 0;font-size:.78rem;color:var(--sub);
 }
