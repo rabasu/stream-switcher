@@ -6,10 +6,9 @@ let videoSrc = 'main';
 let audioSrc = 'main';
 var ecoMode = true;
 var diagOn = false;
-let uiHidden = false;
 
 /* ---------- ステータス表示 ---------- */
-const HINT_DEFAULT = 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　H:UI　?:ヘルプ';
+const HINT_DEFAULT = 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
@@ -62,43 +61,17 @@ if(location.protocol === 'file:'){
 
 /* ---------- YouTube API ---------- */
 let apiReady = false, pending = null;
-let armedIds = null;              // 再生開始ゲート待ちの動画ID
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
 document.head.appendChild(tag);
 window.onYouTubeIframeAPIReady = () => { apiReady = true; if(pending){ build(pending); pending = null; } };
 
-function showStartGate(ids){
-  armedIds = ids;
-  document.getElementById('splash').classList.add('gone');
-  const gate = document.getElementById('startGate');
-  gate.classList.remove('hidden');
-  gate.setAttribute('aria-hidden','false');
-  document.getElementById('startPlay').focus();
-}
-function hideStartGate(){
-  const gate = document.getElementById('startGate');
-  gate.classList.add('hidden');
-  gate.setAttribute('aria-hidden','true');
-}
-function isStartGateOpen(){
-  return !document.getElementById('startGate').classList.contains('hidden');
-}
-/* 中央の再生開始ボタン（ユーザー操作）からのみプレーヤーを起動する */
-function startPlayback(){
-  if(!armedIds) return;
-  const ids = armedIds;
-  audioUnlocked = true;
-  videoSrc = 'main';
-  audioSrc = 'main';
-  hideStartGate();
-  if(apiReady) build(ids);
-  else pending = ids;
-}
-
 function build(ids){
   paused = false;
   targetOffset = 0;
+  audioUnlocked = false;          // 再読み込み時は mute 再生で自動再生を通す
+  videoSrc = 'main';
+  audioSrc = 'none';              // 起動はミュート。赤いミュートボタンで分かる
   KEYS.forEach(k => {
     if(players[k]){ players[k].destroy(); players[k] = null; }
     ready[k] = false;
@@ -114,6 +87,7 @@ function build(ids){
       playerVars:{
         rel:0, playsinline:1, controls:0, disablekb:1,
         autoplay:1,
+        mute:1,
         origin: location.origin          // エラー153対策
       },
       events:{
@@ -121,15 +95,9 @@ function build(ids){
           ready[k] = true;
           try{ e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(err){}
           e.target.setVolume(masterVol);
-          // 開始ボタン経由なら unmute 可。それ以外は mute のまま自動再生
-          if(audioUnlocked){
-            applyAudio(audioSrc, true);
-            e.target.playVideo();
-          }else{
-            e.target.mute();
-            e.target.playVideo();
-            applyAudio(audioSrc, true);
-          }
+          e.target.mute();
+          e.target.playVideo();
+          applyAudio(audioSrc, true);
           syncPlayerToLive(k);
         },
         onError: ev => {
@@ -146,6 +114,7 @@ function build(ids){
   document.getElementById('splash').classList.add('gone');
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
   applyAudio(audioSrc, true);
+  showChrome();
 }
 
 /* ---------- 映像レイヤー ---------- */
@@ -209,15 +178,15 @@ function applyAudio(src, instant){
   document.querySelectorAll('[data-aud]').forEach(b =>
     b.classList.toggle('on', b.dataset.aud === audioSrc));
 
-  const labels = {main:'MAIN 音声', a:'VC-A 音声', b:'VC-B 音声', both:'A + B 同時', none:'音声なし'};
-  const colors = {main:'#8b9aa8', a:'#4ea8de', b:'#f2a65a', both:'#7bc47f', none:'#7d8798'};
+  const labels = {main:'MAIN 音声', a:'VC-A 音声', b:'VC-B 音声', both:'A + B 同時', none:'ミュート'};
+  const colors = {main:'#8b9aa8', a:'#4ea8de', b:'#f2a65a', both:'#7bc47f', none:'#e5484d'};
   document.getElementById('audioLabel').textContent = labels[src];
   const dot = document.querySelector('#nowAudio .dot');
   dot.style.background = colors[src];
   dot.classList.toggle('live', src !== 'none');
 }
 
-/* Space: A ⇄ B。MAIN / 無音 / A+B からは VC-A に入る */
+/* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る */
 function swapVc(){
   audioUnlocked = true;
   applyAudio(audioSrc === 'a' ? 'b' : 'a');
@@ -233,7 +202,7 @@ function setVolume(v, silent){
     clearInterval(fades[k]);
     try{
       p.setVolume(masterVol);
-      masterVol > 0 ? p.unMute() : p.mute();
+      (masterVol > 0 && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
   });
   const el = document.getElementById('vol');
@@ -418,42 +387,85 @@ function reclaimFocus(){
 document.getElementById('shield').addEventListener('mousedown', e => { e.preventDefault(); reclaimFocus(); });
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
-document.addEventListener('mousemove', reclaimFocus, {passive:true});
-setInterval(() => {
-  reclaimFocus();
-  document.getElementById('focusWarn')
-    .classList.toggle('show', !document.hasFocus() && !document.hidden && !uiHidden && !isStartGateOpen());
-}, 500);
-document.getElementById('focusWarn').addEventListener('click', function(){
-  window.focus(); reclaimFocus(); this.classList.remove('show');
+document.addEventListener('mousemove', () => { reclaimFocus(); showChrome(); }, {passive:true});
+document.addEventListener('pointerdown', showChrome, {passive:true});
+document.addEventListener('keydown', showChrome, true);
+['bottomChrome','setup'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('mouseenter', showChrome);
+  el.addEventListener('mouseleave', scheduleHideChrome);
 });
+setInterval(reclaimFocus, 500);
 
-/* ---------- UI ---------- */
-function toggleUI(){
-  uiHidden = !uiHidden;
-  document.getElementById('bar').classList.toggle('hidden', uiHidden);
-  document.getElementById('setup').classList.toggle('hidden', uiHidden);
-  document.getElementById('nowAudio').classList.toggle('hidden', uiHidden);
-  document.getElementById('diag').classList.toggle('show', diagOn && !uiHidden);
-  document.getElementById('hint').style.display = uiHidden ? 'none' : 'block';
+/* ---------- UI（再生中はアイドルで自動非表示） ---------- */
+const UI_IDLE_MS = 2500;
+let uiHideTimer = null;
+
+function chromeInteractive(){
+  const ae = document.activeElement;
+  if(ae && ae.tagName === 'INPUT') return true;
+  const bottom = document.getElementById('bottomChrome');
+  const setup = document.getElementById('setup');
+  if(bottom.matches(':hover') || setup.matches(':hover')) return true;
+  if(document.getElementById('help').classList.contains('show')) return true;
+  if(!document.getElementById('morePanel').classList.contains('collapsed')) return true;
+  return false;
+}
+function canAutoHideChrome(){
+  if(!document.getElementById('splash').classList.contains('gone')) return false;
+  if(!KEYS.some(k => ready[k])) return false;
+  if(chromeInteractive()) return false;
+  return true;
+}
+function showChrome(){
+  document.body.classList.remove('chrome-hidden');
+  scheduleHideChrome();
+}
+function hideChrome(){
+  if(!canAutoHideChrome()) return;
+  document.body.classList.add('chrome-hidden');
+}
+function scheduleHideChrome(){
+  clearTimeout(uiHideTimer);
+  uiHideTimer = null;
+  if(!canAutoHideChrome()) return;
+  uiHideTimer = setTimeout(hideChrome, UI_IDLE_MS);
+}
+
+function syncFsButton(){
+  const on = !!document.fullscreenElement;
+  const btn = document.getElementById('fsBtn');
+  btn.classList.toggle('isFs', on);
+  btn.title = on ? '全画面解除 (F)' : '全画面 (F)';
+  btn.setAttribute('aria-label', on ? '全画面解除' : '全画面');
 }
 function toggleFs(){
-  document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if(document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+}
+document.addEventListener('fullscreenchange', syncFsButton);
+function toggleMore(force){
+  const panel = document.getElementById('morePanel');
+  const btn = document.getElementById('toggleMore');
+  const open = force !== undefined ? force : panel.classList.contains('collapsed');
+  panel.classList.toggle('collapsed', !open);
+  panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  btn.classList.toggle('on', open);
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  showChrome();
 }
 function toggleHelp(force){
   const el = document.getElementById('help');
   el.classList.toggle('show', force !== undefined ? force : !el.classList.contains('show'));
+  showChrome();
 }
 
 document.getElementById('load').addEventListener('click', () => {
   const ids = {};
   KEYS.forEach(k => ids[k] = extractId(document.getElementById('u-'+k).value));
   if(!ids.main && !ids.a && !ids.b){ setStatusLine('URLを1つ以上入力してください'); return; }
-  showStartGate(ids);
-});
-document.getElementById('startPlay').addEventListener('click', startPlayback);
-document.getElementById('startGate').addEventListener('click', e => {
-  if(e.target.id === 'startGate') startPlayback();
+  if(apiReady) build(ids);
+  else pending = ids;
 });
 document.getElementById('copylink').addEventListener('click', function(){
   const u = new URL(location.href.split('?')[0]);
@@ -471,15 +483,15 @@ document.getElementById('golive').addEventListener('click', goLive);
 document.getElementById('playpause').addEventListener('click', togglePlay);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
-document.getElementById('fs').addEventListener('click', toggleFs);
-document.getElementById('toggleui').addEventListener('click', toggleUI);
+document.getElementById('fsBtn').addEventListener('click', toggleFs);
+document.getElementById('toggleMore').addEventListener('click', () => toggleMore());
 document.getElementById('helpbtn').addEventListener('click', () => toggleHelp(true));
 document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(true));
 document.getElementById('helpclose').addEventListener('click', () => toggleHelp(false));
 
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
 document.querySelectorAll('[data-aud]').forEach(b => b.addEventListener('click', () => {
-  audioUnlocked = true;
+  if(b.dataset.aud !== 'none') audioUnlocked = true;
   applyAudio(b.dataset.aud);
 }));
 document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
@@ -504,14 +516,6 @@ window.addEventListener('keydown', e => {
   if(e.ctrlKey || e.metaKey || e.altKey) return;   // ブラウザのショートカットを優先
   if(e.key === 'F5') return;
 
-  if(isStartGateOpen()){
-    if(e.code === 'Space' || e.key === 'Enter'){
-      e.preventDefault();
-      startPlayback();
-    }
-    return;
-  }
-
   if(e.key === 'Escape'){ toggleHelp(false); return; }
   if(e.key === '?' || e.key === '/'){ e.preventDefault(); toggleHelp(); return; }
   if(e.code === 'Space'){ e.preventDefault(); swapVc(); return; }
@@ -526,15 +530,15 @@ window.addEventListener('keydown', e => {
     'w':()=>{ audioUnlocked = true; applyAudio('a'); },
     'e':()=>{ audioUnlocked = true; applyAudio('b'); },
     'r':()=>{ audioUnlocked = true; applyAudio('both'); },
-    'm':()=>{ audioUnlocked = true; applyAudio('none'); },
+    'm':()=>applyAudio('none'),
     'k':togglePlay, 'l':goLive, 'v':toggleEco, 'd':toggleDiag,
-    'h':toggleUI, 'f':toggleFs
+    'f':toggleFs
   };
   const fn = map[e.key.toLowerCase()];
   if(fn){ e.preventDefault(); fn(); }
 }, true);
 
-/* ---------- URLパラメータ: 自動再生せず開始ゲートを出す ---------- */
+/* ---------- URLパラメータ: ミュートのまま自動再生 ---------- */
 if(KEYS.some(k => fromUrl[k])){
-  showStartGate(fromUrl);
+  const iv = setInterval(() => { if(apiReady){ clearInterval(iv); build(fromUrl); } }, 100);
 }
