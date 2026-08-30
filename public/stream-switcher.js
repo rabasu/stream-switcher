@@ -229,11 +229,9 @@ function liveEdge(k){
   if(!p || !ready[k]) return 0;
   try{ return p.getDuration() || 0; }catch(e){ return 0; }
 }
-function currentOffset(){
-  const p = players[videoSrc];
-  if(!p || !ready[videoSrc]) return 0;
-  try{ return Math.max(0, p.getDuration() - p.getCurrentTime()); }catch(e){ return 0; }
-}
+/* YouTubeライブは序盤 getDuration() が 3600 などにパディングされ、
+   LIVE端でも getDuration()-getCurrentTime() が大きな遅れに見える。
+   表示・相対シークは意図した targetOffset を正とする。 */
 function seekAll(){
   KEYS.forEach(k => {
     const p = players[k];
@@ -245,7 +243,7 @@ function seekAll(){
   });
 }
 function seekRelative(delta){
-  targetOffset = Math.max(0, currentOffset() + delta);
+  targetOffset = Math.max(0, targetOffset + delta);
   seekAll();
   renderTransport();
 }
@@ -310,13 +308,14 @@ function fmt(sec){
   return Math.floor(sec/60) + ':' + String(sec%60).padStart(2,'0');
 }
 
-/* スライダーは 左=過去 / 右=LIVE */
+/* スライダーは 左=過去 / 右=LIVE。表示は targetOffset 基準（上記パディング対策） */
 function renderTransport(){
   const scrub = document.getElementById('scrub');
-  const durs = KEYS.filter(k => ready[k]).map(k => liveEdge(k));
-  scrub.max = Math.round(Math.max(60, Math.min(...(durs.length ? durs : [600]), 7200)));
+  const durs = KEYS.filter(k => ready[k]).map(k => liveEdge(k)).filter(d => d > 0);
+  const span = durs.length ? Math.min(...durs) : 600;
+  scrub.max = Math.round(Math.max(60, Math.min(span, 7200)));
 
-  const off = scrubbing ? (scrub.max - parseFloat(scrub.value)) : currentOffset();
+  const off = scrubbing ? (scrub.max - parseFloat(scrub.value)) : targetOffset;
   if(!scrubbing) scrub.value = Math.max(0, scrub.max - Math.min(off, scrub.max));
 
   const pct = scrub.max > 0 ? (scrub.value / scrub.max) * 100 : 0;
@@ -389,7 +388,7 @@ window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
 document.addEventListener('mousemove', () => { reclaimFocus(); showChrome(); }, {passive:true});
 document.addEventListener('pointerdown', showChrome, {passive:true});
-document.addEventListener('keydown', showChrome, true);
+/* ショートカットキーではメニューを出さない（マウス操作時のみ再表示） */
 ['bottomChrome','setup'].forEach(id => {
   const el = document.getElementById(id);
   el.addEventListener('mouseenter', showChrome);
