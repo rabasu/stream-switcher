@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Stream Switcher — 複数配信の音声切替コンソール</title>
+<link rel="stylesheet" href="stream-switcher.css">
+</head>
+<body>
+
+<div id="stage">
+  <div class="layer" id="layer-main"><div id="p-main"></div></div>
+  <div class="layer" id="layer-a"><div id="p-a"></div></div>
+  <div class="layer" id="layer-b"><div id="p-b"></div></div>
+</div>
+
+<div id="diag"></div>
+<div id="shield"></div>
+<div id="focusWarn">キーボード操作が外れています — クリックで復帰</div>
+
+<div id="startGate" class="hidden" aria-hidden="true">
+  <button type="button" id="startPlay">
+    <span class="playIcon" aria-hidden="true">▶</span>
+    <span class="playLabel">再生開始</span>
+    <small>MAIN の LIVE から、映像と音声を開始します</small>
+  </button>
+</div>
+
+<div id="splash">
+  <div class="card">
+    <h2>Stream <span>Switcher</span></h2>
+    <p class="lead">
+      複数のYouTube配信を1つの画面に重ねて、<b>映像はそのままに音声だけをワンボタンで切り替える</b>ためのツールです。
+      ミラー配信で、チームごとのVC配信を交互に流したいときに使います。
+    </p>
+    <ol>
+      <li>上の欄に配信URLを入れて <b>読み込む</b> を押し、中央の <b>再生開始</b> でスタートします。3本すべて埋める必要はありません。</li>
+      <li><b>設定リンクをコピー</b> を押すと、URLを埋め込んだリンクが作れます。次回はそれを開くだけです。</li>
+      <li><code>F</code> で全画面、<code>H</code> で操作UIを消します。この状態をOBSの<b>ウィンドウキャプチャ</b>で取り込みます。</li>
+      <li>音声はOBSの<b>アプリケーション音声キャプチャ</b>でブラウザを指定してください。</li>
+    </ol>
+    <div class="kbdline">
+      本番で使うのはこのあたりだけです。<br>
+      <b>Space</b> … VC-A と VC-B の音声を交互に切替　<b>Q / W / E</b> … 音声を MAIN / A / B に直接指定<br>
+      <b>1 / 2 / 3</b> … 映像を切替　<b>L</b> … LIVEに追いつく<br>
+      その他のキーは <b>?</b> で一覧を表示できます。
+    </div>
+    <p class="notice">
+      <b>配信で使用する場合は、ミラーの許諾を得ている動画のみを使用してください。</b><br>
+      許諾の確認・取得は利用者の責任で行ってください。
+    </p>
+    <p class="splashContact">
+      不具合の報告や要望は
+      <a href="https://x.com/_rabasu_" target="_blank" rel="noopener noreferrer">@_rabasu_</a>
+      まで。
+    </p>
+  </div>
+</div>
+
+<div id="setup">
+  <div class="field">
+    <label>MAIN — メイン配信</label>
+    <input id="u-main" placeholder="URL または動画ID">
+  </div>
+  <div class="field">
+    <label>VC-A — チームA</label>
+    <input id="u-a" placeholder="URL または動画ID">
+  </div>
+  <div class="field">
+    <label>VC-B — チームB</label>
+    <input id="u-b" placeholder="URL または動画ID">
+  </div>
+  <button id="load">読み込む</button>
+  <button class="ghost" id="copylink">設定リンクをコピー</button>
+  <button class="ghost" id="helpbtn">ヘルプ (?)</button>
+</div>
+
+<div id="nowAudio"><span class="dot"></span><span id="audioLabel">MAIN 音声</span></div>
+
+<div id="bar">
+  <!-- よく使う操作 -->
+  <div class="primaryRow">
+    <button id="swap">A ⇄ B 音声切替<small>SPACE</small></button>
+
+    <div class="group">
+      <span>映像</span>
+      <div class="row" id="videoRow">
+        <button class="pill" data-vid="main" data-k="main">MAIN<kbd>1</kbd></button>
+        <button class="pill" data-vid="a" data-k="a">VC-A<kbd>2</kbd></button>
+        <button class="pill" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
+      </div>
+    </div>
+
+    <div class="group">
+      <span>音声</span>
+      <div class="row" id="audioRow">
+        <button class="pill" data-aud="main" data-k="main">MAIN<kbd>Q</kbd></button>
+        <button class="pill" data-aud="a" data-k="a">VC-A<kbd>W</kbd></button>
+        <button class="pill" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
+        <button class="pill" data-aud="both" data-k="both">A+B<kbd>R</kbd></button>
+        <button class="pill" data-aud="none" data-k="none">無音<kbd>M</kbd></button>
+      </div>
+    </div>
+
+    <div class="group">
+      <span>音量</span>
+      <div class="row" id="volWrap">
+        <input type="range" id="vol" min="0" max="100" value="100" step="1">
+        <span id="volLabel">100</span>
+      </div>
+    </div>
+
+    <div id="timeline">
+      <button class="pill" id="playpause">⏸<kbd>K</kbd></button>
+      <input type="range" id="scrub" min="0" max="600" value="600" step="1">
+      <span id="offsetLabel" class="live">● LIVE</span>
+      <button class="pill" id="golive">LIVE<kbd>L</kbd></button>
+    </div>
+
+    <div class="group">
+      <span>画面</span>
+      <div class="row">
+        <button class="pill" id="fs">全画面<kbd>F</kbd></button>
+        <button class="pill" id="toggleui">UI隠す<kbd>H</kbd></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 初期設定・調整用 -->
+  <div class="secondaryRow">
+    <div class="group">
+      <span>シーク</span>
+      <div class="row">
+        <button class="pill" data-seek="30">◀◀30s</button>
+        <button class="pill" data-seek="10">◀10s</button>
+        <button class="pill" data-seek="-10">10s▶</button>
+        <button class="pill" data-seek="-30">30s▶▶</button>
+      </div>
+    </div>
+    <div class="group">
+      <span>速度</span>
+      <div class="row" id="rateRow">
+        <button class="pill on" data-rate="1" data-k="both">1x</button>
+        <button class="pill" data-rate="1.25" data-k="both">1.25x</button>
+        <button class="pill" data-rate="1.5" data-k="both">1.5x</button>
+      </div>
+    </div>
+    <div class="group">
+      <span>ズレ微調整</span>
+      <div class="row">
+        <span class="trim">MAIN<button data-trim="main" data-d="-0.5">−</button><var id="tr-main">0.0</var><button data-trim="main" data-d="0.5">+</button></span>
+        <span class="trim">A<button data-trim="a" data-d="-0.5">−</button><var id="tr-a">0.0</var><button data-trim="a" data-d="0.5">+</button></span>
+        <span class="trim">B<button data-trim="b" data-d="-0.5">−</button><var id="tr-b">0.0</var><button data-trim="b" data-d="0.5">+</button></span>
+      </div>
+    </div>
+    <div class="group">
+      <span>詳細</span>
+      <div class="row">
+        <button class="pill on" id="eco" data-k="both">省帯域<kbd>V</kbd></button>
+        <button class="pill" id="diagbtn" data-k="both">診断<kbd>D</kbd></button>
+        <button class="pill" id="helpbtn2">ヘルプ<kbd>?</kbd></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="hint">Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　H:UI　?:ヘルプ</div>
+
+<div id="help">
+  <button class="close" id="helpclose">ヘルプを閉じる (?)</button>
+  <div class="inner">
+    <h3>キーボードショートカット</h3>
+    <table>
+      <tr><th colspan="2">本番中に使うもの</th></tr>
+      <tr><td>Space</td><td>VC-A と VC-B の音声を交互に切り替える（映像は動きません）。MAIN や無音のときは VC-A に入ります</td></tr>
+      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
+      <tr><td>M</td><td>すべて無音にする</td></tr>
+      <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
+      <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
+      <tr><td>L</td><td>LIVE の最先端に戻って再生を再開する</td></tr>
+
+      <tr><th colspan="2">見返す</th></tr>
+      <tr><td>K</td><td>3本まとめて一時停止 / 再開</td></tr>
+      <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）</td></tr>
+      <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
+
+      <tr><th colspan="2">画面と調整</th></tr>
+      <tr><td>R</td><td>VC-A と VC-B を同時に流す</td></tr>
+      <tr><td>F</td><td>全画面。キャプチャ時はこの状態を推奨します</td></tr>
+      <tr><td>H</td><td>操作UIの表示 / 非表示。配信に映さないため本番前に消します</td></tr>
+      <tr><td>V</td><td>省帯域モード。背面の配信を低解像度で受信して前面に帯域を回します</td></tr>
+      <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
+      <tr><td>?</td><td>このヘルプ</td></tr>
+    </table>
+    <p class="contact">
+      配信で使用する場合は、ミラーの許諾を得ている動画のみを使用してください。許諾の確認・取得は利用者の責任で行ってください。<br><br>
+      不具合の報告や要望は
+      <a href="https://x.com/_rabasu_" target="_blank" rel="noopener noreferrer">@_rabasu_</a>
+      まで。<br>
+      画質や再生がおかしいときは、<b>D</b> キーで診断パネルを開いて、その数値を添えてもらえると助かります。
+    </p>
+  </div>
+</div>
+
+<script src="stream-switcher.js"></script>
+</body>
+</html>
