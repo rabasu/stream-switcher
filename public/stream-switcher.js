@@ -345,9 +345,14 @@ function renderTransport(){
     'linear-gradient(to right, var(--a) 0%, var(--a) ' + pct + '%, #2b3340 ' + pct + '%, #2b3340 100%)';
 
   const label = document.getElementById('offsetLabel');
+  const btn = document.getElementById('golive');
   const atLive = off < 6 && !paused;
-  label.textContent = atLive ? '● LIVE' : '− ' + fmt(off);
-  label.classList.toggle('live', atLive);
+  label.textContent = atLive ? 'LIVE' : '− ' + fmt(off);
+  btn.classList.toggle('live', atLive);
+  // LIVE 中も押せる。表示が LIVE でも実際には数秒遅れていることがある
+  btn.setAttribute('aria-label', atLive
+    ? 'LIVE を再生中。押すと最先端へ追いつき直します'
+    : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
   document.getElementById('playpause').firstChild.nodeValue = paused ? '▶' : '⏸';
 }

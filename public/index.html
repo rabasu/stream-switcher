@@ -90,8 +90,9 @@
       <div id="timeline">
         <button class="pill" id="playpause">⏸<kbd>K</kbd></button>
         <input type="range" id="scrub" min="0" max="600" value="600" step="1">
-        <span id="offsetLabel" class="live">● LIVE</span>
-        <button class="pill" id="golive">LIVE<kbd>L</kbd></button>
+        <button class="pill live" id="golive" title="LIVEの最先端へ (L)">
+          <span class="liveDot" aria-hidden="true"></span><span id="offsetLabel">LIVE</span><kbd>L</kbd>
+        </button>
       </div>
     </div>
 
@@ -162,7 +163,7 @@
       <tr><td>M</td><td>ミュート（すべて無音）にする</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
       <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
-      <tr><td>L</td><td>LIVE の最先端に戻って再生を再開する</td></tr>
+      <tr><td>L</td><td>LIVE の最先端に戻って再生を再開する。赤く点灯していれば LIVE 再生中ですが、その状態でも押せます（表示上 LIVE でも数秒遅れていることがあります）</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
       <tr><td>K</td><td>3本まとめて一時停止 / 再開</td></tr>
@@ -182,7 +183,7 @@
       <tr><td>画面をタップ</td><td>操作パネルの表示 / 非表示</td></tr>
       <tr><td>映像の行</td><td>MAIN / VC-A / VC-B を切り替える（音声は動きません）</td></tr>
       <tr><td>音声の行</td><td>MAIN / VC-A / VC-B を切り替える（映像は動きません）。右端の <b>🔇</b> でミュート</td></tr>
-      <tr><td>下段のバー</td><td>一時停止・巻き戻し・<b>LIVE</b> で最先端へ復帰</td></tr>
+      <tr><td>下段のバー</td><td>一時停止・巻き戻し・<b>LIVE</b> ボタン。赤く点灯していれば LIVE 再生中で、その状態でも押して追いつき直せます</td></tr>
       <tr><td>右端の <b>⚙</b></td><td>速度・配信URL の入力欄・ヘルプ</td></tr>
 
       <tr><th colspan="2">スマホでの制限</th></tr>
