@@ -143,7 +143,7 @@
 <div id="bar">
   <!-- 上段=映像 / 下段=音声。MAIN・VC-A・VC-B の縦軸をグリッドで揃える -->
   <div class="barGrid">
-    <span class="barLabel">映像</span>
+    <span class="barLabel" title="映像"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="currentColor" d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg><span class="srOnly">映像</span></span>
     <button class="pill srcBtn" data-vid="main" data-k="main">MAIN<kbd>1</kbd></button>
     <button class="pill srcBtn" data-vid="a" data-k="a">VC-A<kbd>2</kbd></button>
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
@@ -156,7 +156,7 @@
       </div>
     </div>
 
-    <span class="barLabel" id="labelAudio">音声</span>
+    <span class="barLabel" id="labelAudio" title="音声"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path fill="currentColor" d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg><span class="srOnly">音声</span></span>
     <button class="pill srcBtn" data-aud="main" data-k="main">MAIN<kbd>Q</kbd></button>
     <button class="pill srcBtn" data-aud="a" data-k="a">VC-A<kbd>W</kbd></button>
     <button class="pill srcBtn" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
