@@ -44,6 +44,11 @@
 </div>
 
 <div id="setupAnchor" hidden></div>
+<button type="button" id="centerBtn" title="一時停止 (K)" aria-label="一時停止">
+  <svg class="iconPause" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+  <svg class="iconPlay" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+</button>
+
 <div id="loading" hidden>
   <div class="spinner" aria-hidden="true"></div>
   <p>配信を読み込んでいます…</p>
@@ -96,7 +101,6 @@
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
     <div class="barTail" id="videoTail">
       <div id="timeline">
-        <button class="pill" id="playpause">⏸<kbd>K</kbd></button>
         <input type="range" id="scrub" min="0" max="600" value="600" step="1">
         <button class="pill live" id="golive" title="LIVEの最先端へ (L)">
           <span class="liveDot" aria-hidden="true"></span><span id="offsetLabel">LIVE</span><kbd>L</kbd>

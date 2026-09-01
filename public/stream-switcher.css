@@ -74,6 +74,27 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 #setup .ghost{background:transparent;border:1px solid var(--line);color:var(--sub);font-weight:500;}
 #setup .ghost:hover{border-color:var(--sub);color:var(--text);}
 
+/* ===== 動画中央の再生 / 一時停止 =====
+   YouTube などと同じく、映像の中央を押して止める。操作パネル（#shield,
+   z5）より前、操作バー（z20）より後ろに置く。 */
+#centerBtn{
+  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;
+  width:68px;height:68px;padding:0;border:none;border-radius:50%;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
+  box-shadow:0 4px 20px rgba(0,0,0,.45);
+  transition:opacity .25s,background .15s;
+}
+#centerBtn:hover{background:rgba(0,0,0,.7);}
+#centerBtn:active{transform:translate(-50%,-50%) scale(.94);}
+#centerBtn .iconPlay{display:none;}
+body.paused #centerBtn .iconPause{display:none;}
+body.paused #centerBtn .iconPlay{display:block;}
+/* 操作パネルが消える環境ではそれと同時に、消えない縦画面では時間経過で隠す */
+body.chrome-hidden #centerBtn,
+body.center-hidden #centerBtn{opacity:0;pointer-events:none;}
+#splash:not(.gone) ~ #centerBtn{display:none;}
+
 /* ===== 読み込み中 ===== */
 #loading{
   position:fixed;inset:0;z-index:22;
@@ -297,7 +318,6 @@ body.chrome-hidden #diag{
 #timeline input[type=range]::-moz-range-thumb{
   width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
 }
-#playpause{min-width:52px;}
 /* LIVE 表示と LIVE 復帰ボタンは同じ情報なので1つにまとめてある。
    LIVE 中でも押せる（表示上 LIVE でも実際は少し遅れていることがあるため）*/
 #golive{

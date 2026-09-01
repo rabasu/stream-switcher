@@ -133,6 +133,7 @@ function build(ids){
           // build() の時点では ready が全て false でアイドルタイマーを
           // 仕掛けられない。再生の準備ができたここで改めて仕掛ける
           scheduleHideChrome();
+          showCenter();
           try{ e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(err){}
           e.target.setVolume(masterVol);
           e.target.mute();
@@ -336,6 +337,7 @@ function togglePlay(){
   });
   if(!paused) applyAudio(audioSrc, true);
   renderTransport();
+  showCenter();
 }
 function goLive(){
   audioUnlocked = true;
@@ -411,7 +413,10 @@ function renderTransport(){
     ? 'LIVE を再生中。押すと最先端へ追いつき直します'
     : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
-  document.getElementById('playpause').firstChild.nodeValue = paused ? '▶' : '⏸';
+  document.body.classList.toggle('paused', paused);
+  const cb = document.getElementById('centerBtn');
+  cb.title = paused ? '再生 (K)' : '一時停止 (K)';
+  cb.setAttribute('aria-label', paused ? '再生' : '一時停止');
 }
 setInterval(() => { if(Object.values(ready).some(Boolean)) renderTransport(); }, 300);
 
@@ -470,6 +475,9 @@ function reclaimFocus(){
 /* マウスは iframe へのフォーカス移動を止めるだけ。タッチはタップで操作パネルを開閉する */
 document.getElementById('shield').addEventListener('pointerdown', e => {
   if(e.pointerType === 'mouse'){ e.preventDefault(); reclaimFocus(); return; }
+  if(!centerVisible()) swallowCenterClick = true;
+  // 縦画面は操作パネルが出たままなので、中央ボタンだけ出し直す
+  if(!autoHideEnabled()){ showCenter(); return; }
   toggleChrome();
 });
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
@@ -524,6 +532,7 @@ function canAutoHideChrome(){
 function showChrome(){
   document.body.classList.remove('chrome-hidden');
   scheduleHideChrome();
+  showCenter();
 }
 function hideChrome(){
   if(!canAutoHideChrome()) return;
@@ -543,6 +552,31 @@ function toggleChrome(){
   if(document.body.classList.contains('chrome-hidden')) showChrome();
   else if(autoHideEnabled()) hideChromeNow();
 }
+/* ================================================================
+   動画中央の再生 / 一時停止ボタン
+   操作パネルが消える環境（PC・横画面）では、パネルと同時に消える。
+   消えない縦画面では、止めた映像をそのまま見られるよう時間で消す。
+   ================================================================ */
+const CENTER_IDLE_MS = 3000;
+let centerTimer = null;
+/* 隠れている中央ボタンをタップで出したとき、同じタップの click が
+   （pointerdown で pointer-events が戻るため）ボタンに入ってしまう。
+   出現させたタップの click だけを 1 回捨てる */
+let swallowCenterClick = false;
+function centerVisible(){
+  return !document.body.classList.contains('center-hidden') &&
+         !document.body.classList.contains('chrome-hidden');
+}
+function showCenter(){
+  document.body.classList.remove('center-hidden');
+  clearTimeout(centerTimer);
+  centerTimer = null;
+  if(autoHideEnabled()) return;   // パネルと一緒に消えるので独自タイマーは不要
+  if(!document.getElementById('splash').classList.contains('gone')) return;
+  if(!KEYS.some(k => ready[k])) return;
+  centerTimer = setTimeout(() => document.body.classList.add('center-hidden'), CENTER_IDLE_MS);
+}
+
 function scheduleHideChrome(){
   clearTimeout(uiHideTimer);
   uiHideTimer = null;
@@ -674,9 +708,15 @@ document.getElementById('copylink').addEventListener('click', function(){
 
 document.getElementById('swap').addEventListener('click', swapVc);
 document.getElementById('golive').addEventListener('click', goLive);
-document.getElementById('playpause').addEventListener('click', togglePlay);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
+document.getElementById('centerBtn').addEventListener('click', () => {
+  if(swallowCenterClick) return;   // 出現させたタップでは押さない
+  togglePlay();
+});
+/* バブル段階なので、上のボタンの処理が終わってから解除される。
+   ボタン以外を押したタップでもここに来るので取り残されない */
+window.addEventListener('click', () => { swallowCenterClick = false; });
 document.getElementById('fsBtn').addEventListener('click', toggleFs);
 document.getElementById('chromeBtn').addEventListener('click', hideChromeNow);
 document.getElementById('toggleMore').addEventListener('click', () => toggleMore());
