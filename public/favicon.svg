@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Stream Switcher">
+  <rect width="64" height="64" rx="13" fill="#07090c"/>
+  <g>
+    <rect x="9"  y="17" width="15" height="13" rx="3.5" fill="#4ea8de"/>
+    <rect x="26" y="17" width="15" height="13" rx="3.5" fill="#2b3340"/>
+    <rect x="43" y="17" width="12" height="13" rx="3.5" fill="#2b3340"/>
+    <rect x="9"  y="35" width="15" height="13" rx="3.5" fill="#2b3340"/>
+    <rect x="26" y="35" width="15" height="13" rx="3.5" fill="#2b3340"/>
+    <rect x="43" y="35" width="12" height="13" rx="3.5" fill="#f2a65a"/>
+  </g>
+</svg>
