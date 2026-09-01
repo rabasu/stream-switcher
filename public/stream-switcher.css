@@ -90,8 +90,9 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 #centerBtn .iconPlay{display:none;}
 body.paused #centerBtn .iconPause{display:none;}
 body.paused #centerBtn .iconPlay{display:block;}
-/* 操作パネルが消える環境ではそれと同時に、消えない縦画面では時間経過で隠す */
-body.chrome-hidden #centerBtn,
+/* 横画面スマホは操作パネルと同時に、それ以外は時間経過で隠す。
+   PC は操作パネルと切り離す（マウスを動かすたびに出ると邪魔なため） */
+body.touch.chrome-hidden #centerBtn,
 body.center-hidden #centerBtn{opacity:0;pointer-events:none;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
 

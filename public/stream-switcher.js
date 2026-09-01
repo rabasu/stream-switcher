@@ -473,6 +473,11 @@ function reclaimFocus(){
   }
 }
 /* マウスは iframe へのフォーカス移動を止めるだけ。タッチはタップで操作パネルを開閉する */
+/* PC は映像のどこをクリックしても再生 / 停止（YouTube などと同じ） */
+document.getElementById('shield').addEventListener('click', () => {
+  if(isTouch) return;   // タッチは画面を触って中央ボタンを出す方式
+  togglePlay();
+});
 document.getElementById('shield').addEventListener('pointerdown', e => {
   if(e.pointerType === 'mouse'){ e.preventDefault(); reclaimFocus(); return; }
   if(!centerVisible()) swallowCenterClick = true;
@@ -532,7 +537,9 @@ function canAutoHideChrome(){
 function showChrome(){
   document.body.classList.remove('chrome-hidden');
   scheduleHideChrome();
-  showCenter();
+  // PC の中央ボタンは操作パネルと連動させない。音声を切り替えるたびに
+  // マウスが動いて停止ボタンが出るのは邪魔なので、映像のクリックで出す
+  if(isTouch) showCenter();
 }
 function hideChrome(){
   if(!canAutoHideChrome()) return;
@@ -571,7 +578,8 @@ function showCenter(){
   document.body.classList.remove('center-hidden');
   clearTimeout(centerTimer);
   centerTimer = null;
-  if(autoHideEnabled()) return;   // パネルと一緒に消えるので独自タイマーは不要
+  // 横画面スマホは操作パネルと一緒に消えるので独自タイマーは不要
+  if(isTouch && autoHideEnabled()) return;
   if(!document.getElementById('splash').classList.contains('gone')) return;
   if(!KEYS.some(k => ready[k])) return;
   centerTimer = setTimeout(() => document.body.classList.add('center-hidden'), CENTER_IDLE_MS);
