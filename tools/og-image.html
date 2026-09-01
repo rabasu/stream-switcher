@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!--
+  og.png (1200x630) の版下。1200x630 で開いてそのままスクリーンショットする。
+  説明文: Rounded Mplus 1c（丸ゴシック / SIL OFL）
+          https://github.com/google/fonts/tree/main/ofl/mplusrounded1c
+  UI部分: IPAPGothic（日本語ゴシック。アプリのUIに合わせた素の字面）
+  日本語フォントを明示しないと環境によって中国語フォントに落ち、
+  「骨」「令」などが中国語字形で描かれるので必ず指定すること。
+-->
+<style>
+*{box-sizing:border-box;margin:0;}
+body{
+  width:1200px;height:630px;background:#07090c;color:#e8ecf2;
+  display:flex;flex-direction:column;justify-content:center;padding:0 78px;
+  background-image:radial-gradient(900px 420px at 78% 8%, rgba(78,168,222,.16), transparent 60%),
+                   radial-gradient(700px 380px at 12% 100%, rgba(242,166,90,.12), transparent 60%);
+}
+h1{font-family:"DejaVu Sans",sans-serif;font-size:82px;font-weight:700;letter-spacing:.01em;line-height:1.1;}
+h1 span{color:#4ea8de;}
+p{
+  font-family:"Rounded Mplus 1c","M PLUS Rounded 1c",sans-serif;
+  margin-top:26px;font-size:33px;font-weight:500;color:#a7b1c0;line-height:1.6;letter-spacing:.01em;
+}
+.rows{margin-top:50px;display:flex;flex-direction:column;gap:16px;width:840px;}
+.row{display:flex;align-items:center;gap:14px;}
+.lab{
+  font-family:"IPAPGothic",sans-serif;
+  width:76px;font-size:21px;letter-spacing:.14em;color:#6f7a8b;font-weight:700;
+}
+.pill{
+  flex:1;height:62px;border:1px solid #232a35;border-radius:11px;
+  display:flex;align-items:center;justify-content:center;
+  font-family:"DejaVu Sans",sans-serif;font-size:25px;font-weight:700;
+  color:#7d8798;background:rgba(255,255,255,.04);
+}
+.pill.a{background:#4ea8de;border-color:#4ea8de;color:#04060a;}
+.pill.b{background:#f2a65a;border-color:#f2a65a;color:#04060a;}
+</style>
+</head>
+<body>
+<h1>Stream <span>Switcher</span></h1>
+<p>YouTubeの複数配信を並べて、映像と音声を別々に切り替える</p>
+<div class="rows">
+  <div class="row"><span class="lab">映像</span>
+    <span class="pill a">MAIN</span><span class="pill">VC-A</span><span class="pill">VC-B</span></div>
+  <div class="row"><span class="lab">音声</span>
+    <span class="pill">MAIN</span><span class="pill">VC-A</span><span class="pill b">VC-B</span></div>
+</div>
+</body>
+</html>
