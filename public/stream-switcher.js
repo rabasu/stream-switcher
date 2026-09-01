@@ -227,6 +227,48 @@ function applyAudio(src, instant){
   const dot = document.querySelector('#nowAudio .dot');
   dot.style.background = colors[src];
   dot.classList.toggle('live', src !== 'none');
+  renderVolume();
+}
+
+/* ================================================================
+   ミュート
+   音量バーの根元のスピーカーが担当する（YouTube などと同じ位置）。
+   押すとバーが最小になりミュート、もう一度押すと元の音声に戻る。
+   ミュートは音量を 0 にするのではなく音声の選択を none にするので、
+   解除したときに元の音量へそのまま戻る。
+   ================================================================ */
+let preMuteSrc = null;
+function firstAudioSrc(){ return KEYS.find(k => players[k]) || 'main'; }
+function isMuted(){ return audioSrc === 'none' || masterVol === 0; }
+function muteAll(){
+  if(audioSrc !== 'none') preMuteSrc = audioSrc;
+  applyAudio('none');
+}
+function unmute(){
+  audioUnlocked = true;
+  const src = (preMuteSrc && players[preMuteSrc]) ? preMuteSrc : firstAudioSrc();
+  preMuteSrc = null;
+  if(masterVol === 0) setVolume(100);
+  applyAudio(src);
+}
+function toggleMute(){ isMuted() ? unmute() : muteAll(); }
+
+/* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
+function renderVolume(){
+  const shown = audioSrc === 'none' ? 0 : masterVol;
+  const el = document.getElementById('vol');
+  if(el.value != shown) el.value = shown;
+  el.style.background =
+    'linear-gradient(to right, var(--a) 0%, var(--a) ' + shown + '%, #2b3340 ' + shown + '%, #2b3340 100%)';
+  const lab = document.getElementById('volLabel');
+  lab.textContent = shown;
+  lab.classList.toggle('muted', shown === 0);
+
+  const btn = document.getElementById('volMute');
+  const m = isMuted();
+  btn.classList.toggle('muted', m);
+  btn.title = m ? 'ミュート解除 (M)' : 'ミュート (M)';
+  btn.setAttribute('aria-label', m ? 'ミュート解除' : 'ミュート');
 }
 
 /* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る */
@@ -248,13 +290,7 @@ function setVolume(v, silent){
       (masterVol > 0 && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
   });
-  const el = document.getElementById('vol');
-  if(el.value != masterVol) el.value = masterVol;
-  el.style.background =
-    'linear-gradient(to right, var(--a) 0%, var(--a) ' + masterVol + '%, #2b3340 ' + masterVol + '%, #2b3340 100%)';
-  const lab = document.getElementById('volLabel');
-  lab.textContent = masterVol;
-  lab.classList.toggle('muted', masterVol === 0);
+  renderVolume();
 }
 
 /* ================================================================
@@ -619,15 +655,13 @@ document.getElementById('copylink').addEventListener('click', function(){
     if(id) u.searchParams.set(k, id);
   });
   const text = u.toString();
-  // アイコン表示のときは textContent を差し替えると SVG が消えるので、
-  // 文字は .btnText だけ、アイコンは .copied の付け外しで切り替える
-  const label = this.querySelector('.btnText');
+  // 記号だけのボタンなので、完了はチェックの記号に差し替えて示す
   const done = () => {
-    label.textContent = 'コピーしました';
     this.classList.add('copied');
+    this.setAttribute('aria-label', 'コピーしました');
     setTimeout(() => {
-      label.textContent = '設定リンクをコピー';
       this.classList.remove('copied');
+      this.setAttribute('aria-label', '設定リンクをコピー');
     }, 1400);
   };
   // clipboard API は非セキュアコンテキストや一部のモバイルブラウザに無い
@@ -652,14 +686,22 @@ document.getElementById('helpclose').addEventListener('click', () => toggleHelp(
 
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
 document.querySelectorAll('[data-aud]').forEach(b => b.addEventListener('click', () => {
-  if(b.dataset.aud !== 'none') audioUnlocked = true;
+  if(b.dataset.aud === 'none'){ toggleMute(); return; }
+  audioUnlocked = true;
   applyAudio(b.dataset.aud);
 }));
 document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
 
-document.getElementById('vol').addEventListener('input', function(){ setVolume(this.value); });
+document.getElementById('vol').addEventListener('input', function(){
+  // unmute() は renderVolume() でバーを描き直すので、値は先に控えておく
+  const v = parseFloat(this.value);
+  // ミュート中にバーを動かしたら鳴らす（動かしたのに無音、を避ける）
+  if(v > 0 && audioSrc === 'none') unmute();
+  setVolume(v);
+});
+document.getElementById('volMute').addEventListener('click', toggleMute);
 setVolume(100);
 
 const scrubEl = document.getElementById('scrub');
@@ -691,7 +733,7 @@ window.addEventListener('keydown', e => {
     'w':()=>{ audioUnlocked = true; applyAudio('a'); },
     'e':()=>{ audioUnlocked = true; applyAudio('b'); },
     'r':()=>{ audioUnlocked = true; applyAudio('both'); },
-    'm':()=>applyAudio('none'),
+    'm':toggleMute,
     'k':togglePlay, 'l':goLive, 'v':toggleEco, 'd':toggleDiag,
     'f':toggleFs
   };
