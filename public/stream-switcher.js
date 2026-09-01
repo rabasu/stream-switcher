@@ -25,21 +25,21 @@ if(isIOS) document.body.classList.add('noVol');
 if(!fsSupported()) document.body.classList.add('noFs');
 
 /* ---------- ステータス表示 ---------- */
-const HINT_DEFAULT = isTouch
-  ? '画面をタップすると操作パネルを表示 / 非表示できます'
-  : 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
+/* 縦画面のスマホは操作パネルを畳まないので、タップの案内は出さない */
+function hintDefault(){
+  if(!isTouch) return 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
+  return landscapeMQ.matches ? '画面をタップすると操作パネルを表示 / 非表示できます' : '';
+}
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
   el.classList.add('alert');   // 導入画面では .alert のときだけ表示する
   clearTimeout(setStatusLine._t);
   setStatusLine._t = setTimeout(() => {
-    el.textContent = HINT_DEFAULT;
+    el.textContent = hintDefault();
     el.classList.remove('alert');
   }, 6000);
 }
-
-document.getElementById('hint').textContent = HINT_DEFAULT;
 
 /* ---------- 動画ID抽出 ---------- */
 function extractId(s){
@@ -80,6 +80,20 @@ if(location.protocol === 'file:'){
   });
 }
 
+/* ---------- 読み込み中オーバーレイ ----------
+   入力欄がカードから固定ヘッダーへ移る動きを隠す。実際の読み込みより
+   長く見せる必要はないので、最初のプレーヤーが準備できたら即消す。 */
+function showLoading(){
+  document.getElementById('loading').hidden = false;
+  clearTimeout(showLoading._t);
+  // 埋め込み拒否などで onReady も onError も来ない場合の保険
+  showLoading._t = setTimeout(hideLoading, 15000);
+}
+function hideLoading(){
+  clearTimeout(showLoading._t);
+  document.getElementById('loading').hidden = true;
+}
+
 /* ---------- YouTube API ---------- */
 let apiReady = false, pending = null;
 const tag = document.createElement('script');
@@ -114,6 +128,10 @@ function build(ids){
       events:{
         onReady: e => {
           ready[k] = true;
+          hideLoading();
+          // build() の時点では ready が全て false でアイドルタイマーを
+          // 仕掛けられない。再生の準備ができたここで改めて仕掛ける
+          scheduleHideChrome();
           try{ e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(err){}
           e.target.setVolume(masterVol);
           e.target.mute();
@@ -127,6 +145,7 @@ function build(ids){
             100:'動画が見つからない/非公開', 101:'埋め込みが許可されていません',
             150:'埋め込みが許可されていません', 153:'リファラーが送信されていません'
           }[ev.data] || ('エラーコード ' + ev.data);
+          hideLoading();
           setStatusLine('[' + k.toUpperCase() + '] ' + msg);
         }
       }
@@ -134,7 +153,7 @@ function build(ids){
   });
   document.getElementById('splash').classList.add('gone');
   placeSetup();                     // カードから固定ヘッダーの位置へ戻す
-  if(isTouch) toggleSetup(false);   // 狭い画面では映像を優先。「配信URL」で出し直せる
+  applyOrientationMode();           // 縦=入力欄を常設 / 横=映像優先で出さない
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
   applyAudio(audioSrc, true);
   showChrome();
@@ -434,7 +453,14 @@ if(isTouch){
 }
 setInterval(reclaimFocus, 500);
 
-/* ---------- UI（再生中はアイドルで自動非表示） ---------- */
+/* ================================================================
+   UI の自動非表示
+   縦画面のスマホでは上下の UI が映像（16:9 の黒帯）に収まるので隠す
+   意味がない。横画面は高さが足りず映像を隠すので、タップするまで畳む。
+   PC は従来どおりアイドルで畳む（キャプチャ用途）。
+   ================================================================ */
+const landscapeMQ = matchMedia('(max-height:480px) and (orientation:landscape)');
+function autoHideEnabled(){ return !isTouch || landscapeMQ.matches; }
 const UI_IDLE_MS = isTouch ? 4500 : 2500;
 let uiHideTimer = null;
 
@@ -452,6 +478,7 @@ function chromeInteractive(){
   return false;
 }
 function canAutoHideChrome(){
+  if(!autoHideEnabled()) return false;
   if(!document.getElementById('splash').classList.contains('gone')) return false;
   if(!KEYS.some(k => ready[k])) return false;
   if(chromeInteractive()) return false;
@@ -477,7 +504,7 @@ function hideChromeNow(){
 }
 function toggleChrome(){
   if(document.body.classList.contains('chrome-hidden')) showChrome();
-  else hideChromeNow();
+  else if(autoHideEnabled()) hideChromeNow();
 }
 function scheduleHideChrome(){
   clearTimeout(uiHideTimer);
@@ -516,18 +543,33 @@ function placeSetup(){
   document.body.classList.toggle('setupInCard', inCard);
   syncSetupHeight();
 }
-narrowMQ.addEventListener('change', placeSetup);
+narrowMQ.addEventListener('change', () => { placeSetup(); applyOrientationMode(); });
 function toggleSetup(force){
   const hidden = force !== undefined ? !force : !document.body.classList.contains('setupHidden');
   document.body.classList.toggle('setupHidden', hidden);
-  document.getElementById('setupbtn').classList.toggle('on', !hidden);
   syncSetupHeight();
   showChrome();
 }
+/* 縦横で UI の方針が変わる。向きの変化と、再生開始時に適用する */
+function applyOrientationMode(){
+  const auto = autoHideEnabled();
+  document.body.classList.toggle('autohide', auto);
+  const hint = document.getElementById('hint');
+  if(!hint.classList.contains('alert')) hint.textContent = hintDefault();
+  if(!document.getElementById('splash').classList.contains('gone')){
+    placeSetup();
+    return;
+  }
+  // 再生中: 縦は入力欄を常設、横は映像優先で出さない
+  if(isTouch) toggleSetup(!landscapeMQ.matches);
+  auto ? scheduleHideChrome() : showChrome();
+}
+landscapeMQ.addEventListener('change', applyOrientationMode);
 if(window.ResizeObserver) new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
 window.addEventListener('resize', syncSetupHeight);
 window.addEventListener('orientationchange', () => setTimeout(syncSetupHeight, 250));
 placeSetup();
+applyOrientationMode();
 
 function syncFsButton(){
   const on = !!fsElement();
@@ -567,6 +609,7 @@ document.getElementById('load').addEventListener('click', () => {
   const ids = {};
   KEYS.forEach(k => ids[k] = extractId(document.getElementById('u-'+k).value));
   if(!ids.main && !ids.a && !ids.b){ setStatusLine('URLを1つ以上入力してください'); return; }
+  showLoading();
   if(apiReady) build(ids);
   else pending = ids;
 });
@@ -596,7 +639,6 @@ document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
 document.getElementById('fsBtn').addEventListener('click', toggleFs);
 document.getElementById('chromeBtn').addEventListener('click', hideChromeNow);
-document.getElementById('setupbtn').addEventListener('click', () => toggleSetup());
 document.getElementById('toggleMore').addEventListener('click', () => toggleMore());
 document.getElementById('helpbtn').addEventListener('click', () => toggleHelp(true));
 document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(true));
@@ -653,5 +695,6 @@ window.addEventListener('keydown', e => {
 
 /* ---------- URLパラメータ: ミュートのまま自動再生 ---------- */
 if(KEYS.some(k => fromUrl[k])){
+  showLoading();
   const iv = setInterval(() => { if(apiReady){ clearInterval(iv); build(fromUrl); } }, 100);
 }

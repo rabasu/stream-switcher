@@ -44,17 +44,22 @@
 </div>
 
 <div id="setupAnchor" hidden></div>
+<div id="loading" hidden>
+  <div class="spinner" aria-hidden="true"></div>
+  <p>配信を読み込んでいます…</p>
+</div>
+
 <div id="setup">
   <div class="field">
-    <label>MAIN — メイン配信</label>
+    <label><b>MAIN</b><span class="labelSub"> — メイン配信</span></label>
     <input id="u-main" placeholder="URL または動画ID">
   </div>
   <div class="field">
-    <label>VC-A — チームA</label>
+    <label><b>VC-A</b><span class="labelSub"> — チームA</span></label>
     <input id="u-a" placeholder="URL または動画ID">
   </div>
   <div class="field">
-    <label>VC-B — チームB</label>
+    <label><b>VC-B</b><span class="labelSub"> — チームB</span></label>
     <input id="u-b" placeholder="URL または動画ID">
   </div>
   <button id="load">読み込む</button>
@@ -145,7 +150,6 @@
     <div class="group">
       <span>設定</span>
       <div class="row">
-        <button class="pill" id="setupbtn">配信URL</button>
         <button class="pill on" id="eco" data-k="both">省帯域<kbd>V</kbd></button>
         <button class="pill" id="diagbtn" data-k="both">診断<kbd>D</kbd></button>
         <button class="pill" id="helpbtn2">ヘルプ<kbd>?</kbd></button>
@@ -182,16 +186,20 @@
     </table>
     <h3 class="touchOnly">操作方法</h3>
     <table class="touchOnly">
-      <tr><th colspan="2">画面の操作</th></tr>
-      <tr><td>画面をタップ</td><td>操作パネルの表示 / 非表示</td></tr>
+      <tr><th colspan="2">縦画面</th></tr>
+      <tr><td>操作パネル</td><td>上の配信URL欄と下の操作バーは出したままです。映像は16:9なので上下の黒帯に収まり、映像は隠れません</td></tr>
       <tr><td>映像の行</td><td>MAIN / VC-A / VC-B を切り替える（音声は動きません）</td></tr>
       <tr><td>音声の行</td><td>MAIN / VC-A / VC-B を切り替える（映像は動きません）。右端の <b>🔇</b> でミュート</td></tr>
       <tr><td>下段のバー</td><td>一時停止・巻き戻し・<b>LIVE</b> ボタン。赤く点灯していれば LIVE 再生中で、その状態でも押して追いつき直せます</td></tr>
-      <tr><td>右端の <b>⚙</b></td><td>速度・配信URL の入力欄・ヘルプ</td></tr>
+      <tr><td>右端の <b>⚙</b></td><td>速度とヘルプ</td></tr>
+
+      <tr><th colspan="2">横画面</th></tr>
+      <tr><td>映像を優先</td><td>映像を大きく見るため、操作バーは畳まれます。<b>画面をタップ</b>すると出し入れできます</td></tr>
+      <tr><td>配信URLの変更</td><td>横画面では上の入力欄を出しません（操作バーと重なり映像を隠すため）。変更するときは縦画面に戻してください</td></tr>
 
       <tr><th colspan="2">スマホでの制限</th></tr>
       <tr><td>音量</td><td>端末の音量ボタンで調整してください。iPhone・iPad はブラウザから音量を変えられないため、画面上のスライダーは出していません</td></tr>
-      <tr><td>全画面</td><td>iPhone は全画面に対応していません。Safari のツールバーを隠すか、横向きでご利用ください</td></tr>
+      <tr><td>全画面</td><td>iPhone は全画面に対応していません。横画面にすると映像がほぼ全面に出ます</td></tr>
       <tr><td>通信量</td><td>最大3本を同時受信します。モバイル回線を想定して<b>省帯域モードは常時 ON</b>（背面の配信を低解像度で受信）です</td></tr>
       <tr><td>配信の調整</td><td>ズレ微調整・診断・A+B同時再生はPC版のみです。配信で使う場合はPCからご利用ください</td></tr>
     </table>

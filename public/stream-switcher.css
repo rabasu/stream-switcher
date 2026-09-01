@@ -74,6 +74,22 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 #setup .ghost{background:transparent;border:1px solid var(--line);color:var(--sub);font-weight:500;}
 #setup .ghost:hover{border-color:var(--sub);color:var(--text);}
 
+/* ===== 読み込み中 ===== */
+#loading{
+  position:fixed;inset:0;z-index:22;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  background:#07090c;color:var(--sub);font-size:.85rem;
+}
+#loading[hidden]{display:none;}
+#loading p{margin:0;}
+.spinner{
+  width:38px;height:38px;border-radius:50%;
+  border:3px solid rgba(255,255,255,.12);border-top-color:var(--a);
+  animation:spin .9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){ .spinner{animation-duration:2.4s;} }
+
 /* ===== コントロールバー ===== */
 #bottomChrome{
   position:fixed;bottom:0;left:0;right:0;z-index:20;
@@ -101,16 +117,13 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
   color:#fff;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);
   box-shadow:0 4px 18px rgba(0,0,0,.35);
 }
-body.touch #chromeBtn{display:flex;}
+body.touch.autohide #chromeBtn{display:flex;}
 body.noFs #chromeBtn{right:18px;}
 body.noFs #fsBtn{display:none;}
 /* iOS は HTML5 の音量 API を無視する。効かないスライダーは出さない */
 body.noVol #volWrap{display:none;}
 /* スマホでは読み込み後も #setup が画面の4割を占める。畳んで「配信URL」で出し直す */
 body.setupHidden #setup{display:none;}
-#setupbtn{display:none;}
-body.touch #setupbtn{display:inline-flex;}
-#setupbtn.on{background:var(--sub);border-color:var(--sub);color:#04060a;}
 body.touch .pill kbd,
 body.touch #swap small,
 body.touch .kbOnly{display:none;}
@@ -363,6 +376,7 @@ body.chrome-hidden #diag{
   text-shadow:0 1px 4px rgba(0,0,0,.9);
 }
 #hint.alert{color:var(--live);}
+#hint:empty{display:none;}
 
 
 /* ================================================================
@@ -385,6 +399,12 @@ body.chrome-hidden #diag{
   .field{flex:1 1 100%;min-width:0;}
   .field input{font-size:16px;}          /* 16px 未満だと iOS がフォーカス時に拡大する */
   #setup button{flex:1 1 30%;height:42px;padding:0 10px;}
+  /* カードの中では説明的に、固定ヘッダーではラベルを左に寄せて1行に詰める */
+  body:not(.setupInCard) #setup .field{flex-direction:row;align-items:center;gap:8px;}
+  body:not(.setupInCard) #setup .field label{flex:0 0 3.2em;letter-spacing:.04em;}
+  body:not(.setupInCard) #setup .labelSub{display:none;}
+  body:not(.setupInCard) #setup .field input{flex:1 1 auto;min-width:0;}
+  body:not(.setupInCard) #setup button{height:38px;}
 
   #nowAudio{top:calc(var(--setupH) + 8px);right:12px;padding:6px 11px;font-size:.75rem;}
   #diag{top:calc(var(--setupH) + 8px);left:12px;font-size:.66rem;padding:8px 10px;}
@@ -468,8 +488,10 @@ body.chrome-hidden #diag{
   .barGrid{row-gap:6px;}
   .barGrid > .srcBtn{padding:8px 4px;}
   #audioTail > .pill,#swap{padding:8px;}
-  #hint{display:none;}
   /* 高さが無い。音声の行が色で現在値を示すので重複表示は落とす */
   #nowAudio{display:none;}
+  /* 再生中は上メニューを出さない。下メニューと衝突する上に映像を隠すため、
+     横画面では映像を優先する（配信URLの変更は縦画面で行う） */
+  #splash.gone ~ #setup{display:none;}
   #fsBtn,#chromeBtn{width:36px;height:36px;margin-bottom:6px;}
 }
