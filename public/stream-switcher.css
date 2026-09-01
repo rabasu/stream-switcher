@@ -258,7 +258,7 @@ body.chrome-hidden #diag{
 .barLabel{
   display:flex;align-items:center;justify-content:center;color:var(--sub);
 }
-.barLabel svg{display:block;}
+.barLabel svg{display:block;width:26px;height:26px;}
 /* 見た目は記号でも、読み上げには「映像」「音声」を残す */
 .srOnly{
   position:absolute;width:1px;height:1px;margin:-1px;padding:0;
@@ -490,6 +490,7 @@ body.chrome-hidden #diag{
   body.noFs #chromeBtn{right:12px;}
 
   .barGrid{grid-template-columns:1.9em repeat(3,minmax(0,1fr));column-gap:6px;row-gap:8px;}
+  .barLabel svg{width:28px;height:28px;}
   .barTail{grid-column:1 / -1;gap:6px;}
 
   /* タッチはさらに詰めて 3 行にする。右端に細い列を足し、
