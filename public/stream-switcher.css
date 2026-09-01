@@ -116,6 +116,30 @@ body.touch #swap small,
 body.touch .kbOnly{display:none;}
 body:not(.touch) .touchOnly{display:none;}
 
+/* ================================================================
+   タッチ端末で落とす操作
+   スマホは「見ながら音声を切り替える」視聴用途に絞る。配信の調整は
+   PC 側で行う前提なので、オペレーター向けの操作は出さない。
+   ================================================================ */
+/* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
+body.touch #swap,
+body.touch [data-aud="both"],
+/* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
+body.touch #volWrap,
+/* スクラブバーがあるので不要 */
+body.touch #g-seek,
+/* 配信のズレ合わせと画質切り分けはオペレーター（PC）の仕事 */
+body.touch #g-trim,
+body.touch #diagbtn,
+/* モバイル回線で省帯域を切る理由がないので固定（既定値のまま） */
+body.touch #eco{display:none;}
+
+/* 右端の細い列に入るボタンはアイコンにする */
+.pillIcon{display:none;}
+body.touch .pillIcon{display:block;}
+body.touch .pillText,
+body.touch #toggleMore .chev{display:none;}
+
 #fsBtn:hover{background:rgba(0,0,0,.62);}
 #fsBtn:active{transform:scale(.96);}
 #fsBtn .fsExit{display:none;}
@@ -314,7 +338,9 @@ body.chrome-hidden #diag{
    狭幅では左の MAIN/VC-A/VC-B 列を等分し、タイムラインや音声の
    補助操作（.barTail）は行全体へ折り返す。
    ================================================================ */
-@media (max-width:860px){
+/* 700px 以下＝縦持ちのスマホ。タブレットや幅を狭めた PC ウィンドウは
+   横並びのままで足りるので、ここには入れない */
+@media (max-width:700px){
   /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
   #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 24px;}
   .card h2{font-size:1.3rem;}
@@ -343,6 +369,28 @@ body.chrome-hidden #diag{
 
   .barGrid{grid-template-columns:2.2em repeat(3,minmax(0,1fr));column-gap:6px;row-gap:8px;}
   .barTail{grid-column:1 / -1;gap:6px;}
+
+  /* タッチはさらに詰めて 3 行にする。右端に細い列を足し、
+     .barTail を display:contents で解いて中身を直接グリッドへ置く。
+       1行目  映像 | MAIN | VC-A | VC-B | その他
+       2行目  音声 | MAIN | VC-A | VC-B | ミュート
+       3行目  タイムライン（全幅） */
+  body.touch .barGrid{grid-template-columns:2.2em repeat(3,minmax(0,1fr)) 2.6em;}
+  body.touch .barTail{display:contents;}
+  body.touch .barGrid > .barLabel,
+  body.touch .barGrid > [data-vid]{order:1;}
+  body.touch #toggleMore{order:2;}
+  body.touch .barGrid > [data-aud]{order:3;}
+  body.touch [data-aud="none"]{order:4;}
+  body.touch #timeline{order:5;grid-column:1 / -1;}
+  body.touch .barGrid > [data-aud="main"],
+  body.touch .barGrid > [data-aud="a"],
+  body.touch .barGrid > [data-aud="b"]{order:3;}
+  /* 音声ラベルは2行目の先頭。DOM 順のままだと1行目に来る */
+  body.touch #labelAudio{order:3;}
+  body.touch #toggleMore,
+  body.touch [data-aud="none"]{padding:10px 0;justify-self:stretch;display:flex;
+    align-items:center;justify-content:center;margin-left:0;}
   .barGrid > .srcBtn{padding:10px 4px;font-size:.82rem;}
   #timeline{width:100%;}
   #offsetLabel{min-width:64px;font-size:.75rem;}
