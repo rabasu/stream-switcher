@@ -32,8 +32,8 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 }
 #splash.gone{display:none;}
 .card{max-width:600px;width:100%;}
-.card h2{margin:0 0 6px;font-size:1.5rem;font-weight:800;letter-spacing:.02em;}
-.card h2 span{color:var(--a);}
+.card h1,.card h2{margin:0 0 6px;font-size:1.5rem;font-weight:800;letter-spacing:.02em;}
+.card h1 span,.card h2 span{color:var(--a);}
 .card .lead{margin:0 0 22px;color:var(--sub);font-size:.88rem;line-height:1.7;}
 .card ol{margin:0;padding-left:1.3em;color:var(--sub);font-size:.84rem;line-height:1.9;}
 .card ol b{color:var(--text);}
@@ -446,7 +446,7 @@ body.chrome-hidden #diag{
 @media (max-width:700px){
   /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
   #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 52px;}
-  .card h2{font-size:1.3rem;}
+  .card h1,.card h2{font-size:1.3rem;}
   .card ol{font-size:.82rem;line-height:1.8;}
 
   #setup{
