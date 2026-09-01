@@ -152,8 +152,10 @@ body.touch #eco{display:none;}
    説明がボタン名を指しているので文字のまま残す。
    （「ヘルプ (?)」の (?) はキーボードショートカットなのでここでは消える）*/
 .btnIcon{display:none;}
-body.touch #splash.gone ~ #setup .btnText{display:none;}
-body.touch #splash.gone ~ #setup .btnIcon{display:block;}
+body.touch #splash.gone ~ #setup .btnText,
+body.touch #help .btnText{display:none;}
+body.touch #splash.gone ~ #setup .btnIcon,
+body.touch #help .btnIcon{display:block;}
 body.touch #splash.gone ~ #setup .iconDone{display:none;}
 body.touch #splash.gone ~ #setup #copylink.copied .iconCopy{display:none;}
 body.touch #splash.gone ~ #setup #copylink.copied .iconDone{display:block;}
@@ -361,7 +363,11 @@ body.chrome-hidden #diag{
   position:fixed;inset:0;z-index:23;display:none;
   background:rgba(4,6,10,.93);padding:30px;overflow-y:auto;
 }
-#help.show{display:flex;align-items:center;justify-content:center;}
+/* 中身が画面より高いとき align-items:center は上へはみ出した分にスクロール
+   できず、冒頭が読めなくなる。上端揃えを既定にし、対応ブラウザでは
+   safe center で「収まるときだけ中央」にする */
+#help.show{display:flex;justify-content:center;align-items:flex-start;}
+#help.show{align-items:safe center;}
 #help .inner{max-width:560px;width:100%;}
 #help h3{margin:0 0 18px;font-size:1.1rem;font-weight:800;}
 #help table{width:100%;border-collapse:collapse;font-size:.85rem;}
@@ -377,6 +383,10 @@ body.chrome-hidden #diag{
   position:fixed;top:14px;right:16px;
   background:transparent;border:1px solid var(--line);color:var(--sub);
   border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;font-size:.83rem;
+}
+body.touch #help .close{
+  width:44px;height:44px;padding:0;
+  display:flex;align-items:center;justify-content:center;
 }
 #help .close:hover{border-color:var(--text);color:var(--text);}
 #help .contact{
@@ -479,7 +489,7 @@ body.chrome-hidden #diag{
   #hint{font-size:.66rem;}
 
   #help{padding:16px;}
-  #help .inner{padding-top:44px;}
+  #help .inner{padding-top:48px;}
   #help td:first-child{width:96px;font-size:.76rem;}
   #help table{font-size:.8rem;}
   #help .close{top:10px;right:10px;padding:8px 12px;}
