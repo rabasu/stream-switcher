@@ -1,11 +1,17 @@
 :root{
+  /* #setup の実測高さ。JS が更新する。スマホでは入力欄が縦積みになり大きく変わる */
+  --setupH:96px;
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
   --a:#4ea8de; --b:#f2a65a; --main:#8b9aa8; --live:#e5484d; --ok:#7bc47f;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
-  font-family:"Segoe UI",Hiragino Sans,Meiryo,sans-serif;}
+  font-family:"Segoe UI",Hiragino Sans,Meiryo,sans-serif;
+  overscroll-behavior:none;-webkit-text-size-adjust:100%;}
+/* タップ操作: ダブルタップズームと長押し選択を止め、操作を取りこぼさない */
+body{touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-select:none;}
 
 /* ===== ステージ ===== */
 #stage{position:fixed;inset:0;background:#000;}
@@ -68,6 +74,44 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
 #setup .ghost{background:transparent;border:1px solid var(--line);color:var(--sub);font-weight:500;}
 #setup .ghost:hover{border-color:var(--sub);color:var(--text);}
 
+/* ===== 動画中央の再生 / 一時停止 =====
+   YouTube などと同じく、映像の中央を押して止める。操作パネル（#shield,
+   z5）より前、操作バー（z20）より後ろに置く。 */
+#centerBtn{
+  position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;
+  width:68px;height:68px;padding:0;border:none;border-radius:50%;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
+  box-shadow:0 4px 20px rgba(0,0,0,.45);
+  transition:opacity .25s,background .15s;
+}
+#centerBtn:hover{background:rgba(0,0,0,.7);}
+#centerBtn:active{transform:translate(-50%,-50%) scale(.94);}
+#centerBtn .iconPlay{display:none;}
+body.paused #centerBtn .iconPause{display:none;}
+body.paused #centerBtn .iconPlay{display:block;}
+/* 横画面スマホは操作パネルと同時に、それ以外は時間経過で隠す。
+   PC は操作パネルと切り離す（マウスを動かすたびに出ると邪魔なため） */
+body.touch.chrome-hidden #centerBtn,
+body.center-hidden #centerBtn{opacity:0;pointer-events:none;}
+#splash:not(.gone) ~ #centerBtn{display:none;}
+
+/* ===== 読み込み中 ===== */
+#loading{
+  position:fixed;inset:0;z-index:22;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  background:#07090c;color:var(--sub);font-size:.85rem;
+}
+#loading[hidden]{display:none;}
+#loading p{margin:0;}
+.spinner{
+  width:38px;height:38px;border-radius:50%;
+  border:3px solid rgba(255,255,255,.12);border-top-color:var(--a);
+  animation:spin .9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){ .spinner{animation-duration:2.4s;} }
+
 /* ===== コントロールバー ===== */
 #bottomChrome{
   position:fixed;bottom:0;left:0;right:0;z-index:20;
@@ -88,11 +132,106 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
   box-shadow:0 4px 18px rgba(0,0,0,.35);
   transition:background .15s,transform .12s;
 }
+#chromeBtn{
+  position:absolute;right:72px;bottom:100%;margin-bottom:10px;
+  width:44px;height:44px;padding:0;border:none;border-radius:10px;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+  color:#fff;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);
+  box-shadow:0 4px 18px rgba(0,0,0,.35);
+}
+body.touch.autohide #chromeBtn{display:flex;}
+body.noFs #chromeBtn{right:18px;}
+body.noFs #fsBtn{display:none;}
+/* iOS は HTML5 の音量 API を無視する。効かないスライダーは出さない */
+body.noVol #volWrap{display:none;}
+/* スマホでは読み込み後も #setup が画面の4割を占める。畳んで「配信URL」で出し直す */
+body.setupHidden #setup{display:none;}
+body.touch .pill kbd,
+body.touch #swap small,
+body.touch .kbOnly{display:none;}
+body:not(.touch) .touchOnly{display:none;}
+
+/* ================================================================
+   タッチ端末で落とす操作
+   スマホは「見ながら音声を切り替える」視聴用途に絞る。配信の調整は
+   PC 側で行う前提なので、オペレーター向けの操作は出さない。
+   ================================================================ */
+/* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
+body.touch #swap,
+body.touch [data-aud="both"],
+/* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
+body.touch #volWrap,
+/* スクラブバーがあるので不要 */
+body.touch #g-seek,
+/* 配信のズレ合わせと画質切り分けはオペレーター（PC）の仕事 */
+body.touch #g-trim,
+body.touch #diagbtn,
+/* モバイル回線で省帯域を切る理由がないので固定（既定値のまま） */
+body.touch #eco{display:none;}
+
+/* コピーとヘルプは記号だけにして枠を詰める。文字の説明はボタン名では
+   なく記号を指す（導入画面の手順に同じ記号を並べてある）。
+   「(?)」はキーボードショートカットの表記なので記号には出さず、
+   title 属性のツールチップに残す */
+#setup #copylink,#setup #helpbtn{
+  flex:0 0 46px;min-width:0;padding:0;
+  display:flex;align-items:center;justify-content:center;
+}
+#copylink .iconDone{display:none;}
+#copylink.copied .iconCopy{display:none;}
+#copylink.copied .iconDone{display:block;}
+#copylink.copied{color:var(--ok);border-color:var(--ok);}
+.inlineIcon{display:inline-flex;vertical-align:-3px;color:var(--text);}
+
+/* 音量バーの根元のスピーカー（YouTube などと同じ位置） */
+#volMute{
+  flex-shrink:0;width:30px;height:30px;padding:0;border:none;border-radius:6px;
+  background:transparent;color:var(--sub);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+#volMute:hover{color:var(--text);}
+#volMute .iconVolOff{display:none;}
+#volMute.muted{color:var(--live);}
+#volMute.muted .iconVolOn{display:none;}
+#volMute.muted .iconVolOff{display:block;}
+/* PC はスピーカーがミュートを兼ねるので、音声行のミュートボタンは出さない */
+body:not(.touch) [data-aud="none"]{display:none;}
+
+/* 右端の細い列に入るボタンはアイコンにする */
+.pillIcon{display:none;}
+body.touch .pillIcon{display:block;}
+body.touch .pillText,
+body.touch #toggleMore .chev{display:none;}
+
 #fsBtn:hover{background:rgba(0,0,0,.62);}
 #fsBtn:active{transform:scale(.96);}
 #fsBtn .fsExit{display:none;}
 #fsBtn.isFs .fsEnter{display:none;}
 #fsBtn.isFs .fsExit{display:block;}
+
+/* 狭い画面の導入画面では、#setup を固定ヘッダーではなく説明カードの
+   流れ（注意書きの下）に置く。JS が #setupSlot へ移動させる */
+body.setupInCard #setup{
+  position:static;z-index:auto;background:transparent;border-bottom:none;
+  backdrop-filter:none;padding:0;max-height:none;overflow:visible;
+}
+#setupSlot:empty{display:none;}
+body.setupInCard #setupSlot{margin-top:22px;}
+/* 導入画面ではまだ再生していない。音声インジケーターは出さない */
+#splash:not(.gone) ~ #nowAudio{display:none;}
+
+/* 導入画面では操作バーは何も操作できない。狭い画面を食うので畳み、
+   #hint（エラー表示）だけ残す */
+#splash:not(.gone) ~ #bottomChrome > #bar,
+#splash:not(.gone) ~ #bottomChrome > #fsBtn,
+#splash:not(.gone) ~ #bottomChrome > #chromeBtn{display:none;}
+/* 導入画面では操作の案内は意味がなく、カード下端に重なるので出さない。
+   エラー（.alert）だけは読めるように背景を敷いて残す */
+#splash:not(.gone) ~ #bottomChrome > #hint:not(.alert){display:none;}
+#splash:not(.gone) ~ #bottomChrome > #hint.alert{
+  background:rgba(7,9,12,.94);
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
+}
 
 /* 再生中のアイドルでUIを自動非表示 */
 body.chrome-hidden #bottomChrome,
@@ -180,12 +319,25 @@ body.chrome-hidden #diag{
 #timeline input[type=range]::-moz-range-thumb{
   width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
 }
-#playpause{min-width:52px;}
+/* LIVE 表示と LIVE 復帰ボタンは同じ情報なので1つにまとめてある。
+   LIVE 中でも押せる（表示上 LIVE でも実際は少し遅れていることがあるため）*/
+#golive{
+  display:flex;align-items:center;gap:6px;flex-shrink:0;
+  padding:8px 12px;
+}
 #offsetLabel{
   font-family:ui-monospace,monospace;font-size:.8rem;font-weight:700;
-  min-width:72px;text-align:right;flex-shrink:0;
+  min-width:4.6em;text-align:center;
 }
-#offsetLabel.live{color:var(--live);}
+.liveDot{
+  width:8px;height:8px;border-radius:50%;background:currentColor;
+  flex-shrink:0;opacity:.45;
+}
+#golive.live{
+  background:rgba(229,72,77,.14);border-color:rgba(229,72,77,.55);color:var(--live);
+}
+#golive.live .liveDot{opacity:1;animation:pulse 1.6s infinite;}
+#golive.live:hover{border-color:var(--live);color:var(--live);}
 
 /* ===== 音量 ===== */
 #volWrap{display:flex;align-items:center;gap:8px;flex:0 0 auto;}
@@ -241,7 +393,11 @@ body.chrome-hidden #diag{
   position:fixed;inset:0;z-index:23;display:none;
   background:rgba(4,6,10,.93);padding:30px;overflow-y:auto;
 }
-#help.show{display:flex;align-items:center;justify-content:center;}
+/* 中身が画面より高いとき align-items:center は上へはみ出した分にスクロール
+   できず、冒頭が読めなくなる。上端揃えを既定にし、対応ブラウザでは
+   safe center で「収まるときだけ中央」にする */
+#help.show{display:flex;justify-content:center;align-items:flex-start;}
+#help.show{align-items:safe center;}
 #help .inner{max-width:560px;width:100%;}
 #help h3{margin:0 0 18px;font-size:1.1rem;font-weight:800;}
 #help table{width:100%;border-collapse:collapse;font-size:.85rem;}
@@ -258,6 +414,10 @@ body.chrome-hidden #diag{
   background:transparent;border:1px solid var(--line);color:var(--sub);
   border-radius:6px;padding:8px 16px;font-weight:700;cursor:pointer;font-size:.83rem;
 }
+#help .close{
+  width:44px;height:44px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+}
 #help .close:hover{border-color:var(--text);color:var(--text);}
 #help .contact{
   margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);
@@ -266,7 +426,130 @@ body.chrome-hidden #diag{
 #help .contact a{color:var(--a);text-decoration:none;font-weight:700;}
 #help .contact a:hover{text-decoration:underline;}
 
+/* 操作バーの直上。以前は fixed bottom:0 で #bar の背景に隠れ、エラー文が読めなかった */
 #hint{
-  position:fixed;bottom:0;left:0;right:0;z-index:18;text-align:center;
-  padding:5px;font-size:.7rem;color:#3d4552;pointer-events:none;
+  position:relative;z-index:1;text-align:center;
+  padding:0 12px 6px;font-size:.7rem;color:#8b93a2;pointer-events:none;
+  text-shadow:0 1px 4px rgba(0,0,0,.9);
+}
+#hint.alert{color:var(--live);}
+#hint:empty{display:none;}
+
+
+/* ================================================================
+   スマホ・タブレット
+   狭幅では左の MAIN/VC-A/VC-B 列を等分し、タイムラインや音声の
+   補助操作（.barTail）は行全体へ折り返す。
+   ================================================================ */
+/* 700px 以下＝縦持ちのスマホ。タブレットや幅を狭めた PC ウィンドウは
+   横並びのままで足りるので、ここには入れない */
+@media (max-width:700px){
+  /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
+  #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 52px;}
+  .card h2{font-size:1.3rem;}
+  .card ol{font-size:.82rem;line-height:1.8;}
+
+  #setup{
+    padding:10px max(12px,env(safe-area-inset-left)) 10px max(12px,env(safe-area-inset-right));
+    gap:8px;max-height:60svh;overflow-y:auto;
+  }
+  .field{flex:1 1 100%;min-width:0;}
+  .field input{font-size:16px;}          /* 16px 未満だと iOS がフォーカス時に拡大する */
+  #setup button{flex:1 1 30%;height:42px;padding:0 10px;}
+  /* カードの中では説明的に、固定ヘッダーではラベルを左に寄せて1行に詰める */
+  body:not(.setupInCard) #setup .field{flex-direction:row;align-items:center;gap:8px;}
+  body:not(.setupInCard) #setup .field label{flex:0 0 3.2em;letter-spacing:.04em;}
+  body:not(.setupInCard) #setup .labelSub{display:none;}
+  body:not(.setupInCard) #setup .field input{flex:1 1 auto;min-width:0;}
+  body:not(.setupInCard) #setup button{height:38px;}
+  #load{flex:1 1 auto;}
+
+  #nowAudio{top:calc(var(--setupH) + 8px);right:12px;padding:6px 11px;font-size:.75rem;}
+  #diag{top:calc(var(--setupH) + 8px);left:12px;font-size:.66rem;padding:8px 10px;}
+
+  #bar{
+    padding:10px max(12px,env(safe-area-inset-left))
+           calc(8px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-right));
+    gap:8px;
+  }
+  #fsBtn,#chromeBtn{width:40px;height:40px;margin-bottom:8px;}
+  #fsBtn{right:12px;}
+  #chromeBtn{right:60px;}
+  body.noFs #chromeBtn{right:12px;}
+
+  .barGrid{grid-template-columns:2.2em repeat(3,minmax(0,1fr));column-gap:6px;row-gap:8px;}
+  .barTail{grid-column:1 / -1;gap:6px;}
+
+  /* タッチはさらに詰めて 3 行にする。右端に細い列を足し、
+     .barTail を display:contents で解いて中身を直接グリッドへ置く。
+       1行目  映像 | MAIN | VC-A | VC-B | その他
+       2行目  音声 | MAIN | VC-A | VC-B | ミュート
+       3行目  タイムライン（全幅） */
+  body.touch .barGrid{grid-template-columns:2.2em repeat(3,minmax(0,1fr)) 2.6em;}
+  body.touch .barTail{display:contents;}
+  body.touch .barGrid > .barLabel,
+  body.touch .barGrid > [data-vid]{order:1;}
+  body.touch #toggleMore{order:2;}
+  body.touch .barGrid > [data-aud]{order:3;}
+  body.touch [data-aud="none"]{order:4;}
+  body.touch #timeline{order:5;grid-column:1 / -1;}
+  body.touch .barGrid > [data-aud="main"],
+  body.touch .barGrid > [data-aud="a"],
+  body.touch .barGrid > [data-aud="b"]{order:3;}
+  /* 音声ラベルは2行目の先頭。DOM 順のままだと1行目に来る */
+  body.touch #labelAudio{order:3;}
+  body.touch #toggleMore,
+  body.touch [data-aud="none"]{padding:10px 0;justify-self:stretch;display:flex;
+    align-items:center;justify-content:center;margin-left:0;}
+  .barGrid > .srcBtn{padding:10px 4px;font-size:.82rem;}
+  #timeline{width:100%;}
+  #offsetLabel{min-width:4.4em;font-size:.75rem;}
+  #golive{padding:8px 10px;gap:5px;}
+  #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
+  #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
+  #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
+  #volWrap{flex:1 1 100%;order:3;}
+  #vol{flex:1 1 auto;width:auto;}
+
+  .secondaryRow{gap:10px;max-height:34svh;overflow-y:auto;}
+  .group{flex:1 1 100%;}
+  .secondaryRow .row{flex-wrap:wrap;}
+  .secondaryRow .pill{flex:1 1 auto;padding:9px 10px;}
+  .trim button{width:32px;height:32px;}
+
+  #hint{font-size:.66rem;}
+
+  #help{padding:16px;}
+  #help .inner{padding-top:48px;}
+  #help td:first-child{width:96px;font-size:.76rem;}
+  #help table{font-size:.8rem;}
+  #help .close{top:10px;right:10px;padding:8px 12px;}
+}
+
+/* 横向きスマホ: 幅は足りるので入力欄と操作バーは横並びに戻し、高さを稼ぐ */
+@media (max-height:480px) and (orientation:landscape) and (min-width:640px){
+  #setup{padding-top:8px;padding-bottom:8px;max-height:70svh;}
+  .field{flex:1 1 150px;min-width:120px;gap:3px;}
+  #setup button{flex:0 1 auto;height:38px;}
+  .barGrid{grid-template-columns:2.5em repeat(3,5.6em) minmax(0,1fr);}
+  .barTail{grid-column:auto;}
+  #audioTail > .pill{flex:0 1 auto;}
+  #swap{flex:0 1 auto;order:0;min-width:120px;}
+  #volWrap{flex:0 1 auto;order:0;}
+  #vol{width:90px;flex:0 0 auto;}
+  #toggleMore{margin-left:auto;order:0;}
+}
+
+/* 横向きスマホは高さが足りないので、バーを詰めて映像を優先する */
+@media (max-height:480px) and (orientation:landscape){
+  #bar{padding-top:10px;gap:8px;}
+  .barGrid{row-gap:6px;}
+  .barGrid > .srcBtn{padding:8px 4px;}
+  #audioTail > .pill,#swap{padding:8px;}
+  /* 高さが無い。音声の行が色で現在値を示すので重複表示は落とす */
+  #nowAudio{display:none;}
+  /* 再生中は上メニューを出さない。下メニューと衝突する上に映像を隠すため、
+     横画面では映像を優先する（配信URLの変更は縦画面で行う） */
+  #splash.gone ~ #setup{display:none;}
+  #fsBtn,#chromeBtn{width:36px;height:36px;margin-bottom:6px;}
 }

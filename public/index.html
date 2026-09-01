@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Stream Switcher — 複数配信の音声切替コンソール</title>
 <link rel="stylesheet" href="stream-switcher.css">
@@ -24,15 +24,17 @@
       複数のYouTube配信を映像・音声別々に切り替えるツールです。
     </p>
     <ol>
-      <li>上の欄に <b>配信URLを3つまで入力</b></li>
-      <li><b>読み込む</b> をクリック</li>
-      <li><b>設定リンクをコピー</b> をクリックすると、URLを埋め込んだリンクが作成できます</li>
-      <li>詳細は右上の<b>ヘルプ</b>を確認してください</li>
+      <li><b>配信URL</b>を3つまで入力</li>
+      <li><b>読み込む</b> をクリックすると再生が始まります</li>
+      <li>下メニューで映像・音声を別々に切り替えられます</li>
+      <li><span class="inlineIcon"><svg  viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></span> を押すと、配信URLを埋め込んだリンクが作成できます</li>
+      <li>詳しい使い方は <span class="inlineIcon"><svg  viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg></span> から確認できます</li>
     </ol>
     <p class="notice">
       <b>配信で使用する場合は、ミラーの許諾を得ている動画のみを使用してください。</b><br>
       配信元への許諾の確認・取得は利用者の責任で行ってください。
     </p>
+    <div id="setupSlot"></div>
     <p class="splashContact">
       不具合の報告や要望は
       <a href="https://x.com/_rabasu_" target="_blank" rel="noopener noreferrer">@_rabasu_</a>
@@ -41,33 +43,52 @@
   </div>
 </div>
 
+<div id="setupAnchor" hidden></div>
+<button type="button" id="centerBtn" title="一時停止 (K)" aria-label="一時停止">
+  <svg class="iconPause" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+  <svg class="iconPlay" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+</button>
+
+<div id="loading" hidden>
+  <div class="spinner" aria-hidden="true"></div>
+  <p>配信を読み込んでいます…</p>
+</div>
+
 <div id="setup">
   <div class="field">
-    <label>MAIN — メイン配信</label>
+    <label><b>MAIN</b><span class="labelSub"> — メイン配信</span></label>
     <input id="u-main" placeholder="URL または動画ID">
   </div>
   <div class="field">
-    <label>VC-A — チームA</label>
+    <label><b>VC-A</b><span class="labelSub"> — チームA</span></label>
     <input id="u-a" placeholder="URL または動画ID">
   </div>
   <div class="field">
-    <label>VC-B — チームB</label>
+    <label><b>VC-B</b><span class="labelSub"> — チームB</span></label>
     <input id="u-b" placeholder="URL または動画ID">
   </div>
   <button id="load">読み込む</button>
-  <button class="ghost" id="copylink">設定リンクをコピー</button>
-  <button class="ghost" id="helpbtn">ヘルプ (?)</button>
+  <button class="ghost" id="copylink" title="設定リンクをコピー" aria-label="設定リンクをコピー"><svg class="btnIcon iconCopy" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg><svg class="btnIcon iconDone" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></button>
+  <button class="ghost" id="helpbtn" title="ヘルプ (?)" aria-label="ヘルプ"><svg class="btnIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg></button>
 </div>
 
 <div id="nowAudio"><span class="dot"></span><span id="audioLabel">MAIN 音声</span></div>
 
 <div id="bottomChrome">
+<div id="hint">Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ</div>
+
 <button type="button" id="fsBtn" title="全画面 (F)" aria-label="全画面">
   <svg class="fsEnter" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
     <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
   </svg>
   <svg class="fsExit" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
     <path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
+  </svg>
+</button>
+
+<button type="button" id="chromeBtn" title="操作パネルを隠す" aria-label="操作パネルを隠す">
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/>
   </svg>
 </button>
 
@@ -80,34 +101,36 @@
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
     <div class="barTail" id="videoTail">
       <div id="timeline">
-        <button class="pill" id="playpause">⏸<kbd>K</kbd></button>
         <input type="range" id="scrub" min="0" max="600" value="600" step="1">
-        <span id="offsetLabel" class="live">● LIVE</span>
-        <button class="pill" id="golive">LIVE<kbd>L</kbd></button>
+        <button class="pill live" id="golive" title="LIVEの最先端へ (L)">
+          <span class="liveDot" aria-hidden="true"></span><span id="offsetLabel">LIVE</span><kbd>L</kbd>
+        </button>
       </div>
     </div>
 
-    <span class="barLabel">音声</span>
+    <span class="barLabel" id="labelAudio">音声</span>
     <button class="pill srcBtn" data-aud="main" data-k="main">MAIN<kbd>Q</kbd></button>
     <button class="pill srcBtn" data-aud="a" data-k="a">VC-A<kbd>W</kbd></button>
     <button class="pill srcBtn" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
     <div class="barTail" id="audioTail">
       <button class="pill" data-aud="both" data-k="both">同時<kbd>R</kbd></button>
-      <button class="pill" data-aud="none" data-k="none">ミュート<kbd>M</kbd></button>
+      <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
       <button id="swap">A ⇄ B<small>SPACE</small></button>
       <div class="row" id="volWrap">
+        <button type="button" id="volMute" title="ミュート (M)" aria-label="ミュート">
+          <svg class="iconVolOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+          <svg class="iconVolOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg>
+        </button>
         <input type="range" id="vol" min="0" max="100" value="100" step="1">
         <span id="volLabel">100</span>
       </div>
-      <button class="pill" id="toggleMore" aria-expanded="false" aria-controls="morePanel">
-        その他 <span class="chev" aria-hidden="true">▾</span>
-      </button>
+      <button class="pill" id="toggleMore" aria-expanded="false" aria-controls="morePanel" aria-label="その他の設定"><span class="pillText">その他</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 7h11a3 3 0 0 1 6 0h1v2h-1a3 3 0 0 1-6 0H3V7zm0 8h4a3 3 0 0 1 6 0h8v2h-8a3 3 0 0 1-6 0H3v-2z"/></svg><span class="chev" aria-hidden="true">▾</span></button>
     </div>
   </div>
 
   <!-- あまり使わない調整類。右端の「その他」で開く -->
   <div class="secondaryRow collapsed" id="morePanel" aria-hidden="true">
-    <div class="group">
+    <div class="group" id="g-seek">
       <span>シーク</span>
       <div class="row">
         <button class="pill" data-seek="30">◀◀30s</button>
@@ -124,7 +147,7 @@
         <button class="pill" data-rate="1.5" data-k="both">1.5x</button>
       </div>
     </div>
-    <div class="group">
+    <div class="group" id="g-trim">
       <span>ズレ微調整</span>
       <div class="row">
         <span class="trim">MAIN<button data-trim="main" data-d="-0.5">−</button><var id="tr-main">0.0</var><button data-trim="main" data-d="0.5">+</button></span>
@@ -144,39 +167,44 @@
 </div>
 </div>
 
-<div id="hint">Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ</div>
-
 <div id="help">
-  <button class="close" id="helpclose">ヘルプを閉じる (?)</button>
+  <button class="close" id="helpclose" title="ヘルプを閉じる (?)" aria-label="ヘルプを閉じる"><svg class="btnIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
   <div class="inner">
-    <h3>キーボードショートカット</h3>
-    <table>
+    <h3 class="kbOnly">キーボードショートカット</h3>
+    <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
       <tr><td>Space</td><td>VC-A と VC-B の音声を交互に切り替える（映像は動きません）。MAIN やミュートのときは VC-A に入ります</td></tr>
       <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
-      <tr><td>M</td><td>ミュート（すべて無音）にする</td></tr>
+      <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
       <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
-      <tr><td>L</td><td>LIVE の最先端に戻って再生を再開する</td></tr>
+      <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
-      <tr><td>K</td><td>3本まとめて一時停止 / 再開</td></tr>
+      <tr><td>K</td><td>3本まとめて一時停止 / 再開。映像のクリックでも同じです</td></tr>
       <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）</td></tr>
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
 
       <tr><th colspan="2">画面と調整</th></tr>
       <tr><td>R</td><td>VC-A と VC-B を同時に流す</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
-      <tr><td>V</td><td>省帯域モード。背面の配信を低解像度で受信して前面に帯域を回します</td></tr>
+      <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
       <tr><td>?</td><td>このヘルプ</td></tr>
     </table>
+    <h3 class="touchOnly">操作方法</h3>
+    <table class="touchOnly">
+      <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです</td></tr>
+      <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます</td></tr>
+      <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>
+      <tr><td>通信量</td><td>配信を3本まで同時に受信します。モバイル回線ではご注意ください</td></tr>
+    </table>
+
     <p class="contact">
       配信で使用する場合は、ミラーの許諾を得ている動画のみを使用してください。許諾の確認・取得は利用者の責任で行ってください。<br><br>
       不具合の報告や要望は
       <a href="https://x.com/_rabasu_" target="_blank" rel="noopener noreferrer">@_rabasu_</a>
-      まで。<br>
-      画質や再生がおかしいときは、<b>D</b> キーで診断パネルを開いて、その数値を添えてもらえると助かります。
+      まで。<span class="kbOnly"><br>画質や再生がおかしいときは、<b>D</b> キーで診断パネルを開いて、その数値を添えてもらえると助かります。</span>
     </p>
   </div>
 </div>

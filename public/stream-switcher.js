@@ -7,18 +7,40 @@ let audioSrc = 'main';
 var ecoMode = true;
 var diagOn = false;
 
+/* ================================================================
+   端末判定
+   スマホでは (1) キーボードが無い (2) iOS が HTML5 の音量 API を
+   無視する (3) iPhone に要素全画面が無い、の3点でUIを変える。
+   ================================================================ */
+const isTouch = matchMedia('(hover:none) and (pointer:coarse)').matches;
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function fsSupported(){
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+}
+if(isTouch) document.body.classList.add('touch');
+/* iOS の <video> 音量はハードウェア固定。効かないスライダーは出さない */
+if(isIOS) document.body.classList.add('noVol');
+if(!fsSupported()) document.body.classList.add('noFs');
+
 /* ---------- ステータス表示 ---------- */
-const HINT_DEFAULT = 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
+/* タッチ端末では常時空。この行はエラー表示専用として使う */
+function hintDefault(){
+  return isTouch ? '' : 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
+}
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
-  el.style.color = '#e5484d';
+  el.classList.add('alert');   // 導入画面では .alert のときだけ表示する
   clearTimeout(setStatusLine._t);
   setStatusLine._t = setTimeout(() => {
-    el.textContent = HINT_DEFAULT;
-    el.style.color = '';
+    el.textContent = hintDefault();
+    el.classList.remove('alert');
   }, 6000);
 }
+
+document.getElementById('hint').textContent = hintDefault();
 
 /* ---------- 動画ID抽出 ---------- */
 function extractId(s){
@@ -59,6 +81,20 @@ if(location.protocol === 'file:'){
   });
 }
 
+/* ---------- 読み込み中オーバーレイ ----------
+   入力欄がカードから固定ヘッダーへ移る動きを隠す。実際の読み込みより
+   長く見せる必要はないので、最初のプレーヤーが準備できたら即消す。 */
+function showLoading(){
+  document.getElementById('loading').hidden = false;
+  clearTimeout(showLoading._t);
+  // 埋め込み拒否などで onReady も onError も来ない場合の保険
+  showLoading._t = setTimeout(hideLoading, 15000);
+}
+function hideLoading(){
+  clearTimeout(showLoading._t);
+  document.getElementById('loading').hidden = true;
+}
+
 /* ---------- YouTube API ---------- */
 let apiReady = false, pending = null;
 const tag = document.createElement('script');
@@ -93,6 +129,11 @@ function build(ids){
       events:{
         onReady: e => {
           ready[k] = true;
+          hideLoading();
+          // build() の時点では ready が全て false でアイドルタイマーを
+          // 仕掛けられない。再生の準備ができたここで改めて仕掛ける
+          scheduleHideChrome();
+          showCenter();
           try{ e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(err){}
           e.target.setVolume(masterVol);
           e.target.mute();
@@ -106,12 +147,15 @@ function build(ids){
             100:'動画が見つからない/非公開', 101:'埋め込みが許可されていません',
             150:'埋め込みが許可されていません', 153:'リファラーが送信されていません'
           }[ev.data] || ('エラーコード ' + ev.data);
+          hideLoading();
           setStatusLine('[' + k.toUpperCase() + '] ' + msg);
         }
       }
     });
   });
   document.getElementById('splash').classList.add('gone');
+  placeSetup();                     // カードから固定ヘッダーの位置へ戻す
+  applyOrientationMode();           // 縦=入力欄を常設 / 横=映像優先で出さない
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
   applyAudio(audioSrc, true);
   showChrome();
@@ -184,6 +228,48 @@ function applyAudio(src, instant){
   const dot = document.querySelector('#nowAudio .dot');
   dot.style.background = colors[src];
   dot.classList.toggle('live', src !== 'none');
+  renderVolume();
+}
+
+/* ================================================================
+   ミュート
+   音量バーの根元のスピーカーが担当する（YouTube などと同じ位置）。
+   押すとバーが最小になりミュート、もう一度押すと元の音声に戻る。
+   ミュートは音量を 0 にするのではなく音声の選択を none にするので、
+   解除したときに元の音量へそのまま戻る。
+   ================================================================ */
+let preMuteSrc = null;
+function firstAudioSrc(){ return KEYS.find(k => players[k]) || 'main'; }
+function isMuted(){ return audioSrc === 'none' || masterVol === 0; }
+function muteAll(){
+  if(audioSrc !== 'none') preMuteSrc = audioSrc;
+  applyAudio('none');
+}
+function unmute(){
+  audioUnlocked = true;
+  const src = (preMuteSrc && players[preMuteSrc]) ? preMuteSrc : firstAudioSrc();
+  preMuteSrc = null;
+  if(masterVol === 0) setVolume(100);
+  applyAudio(src);
+}
+function toggleMute(){ isMuted() ? unmute() : muteAll(); }
+
+/* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
+function renderVolume(){
+  const shown = audioSrc === 'none' ? 0 : masterVol;
+  const el = document.getElementById('vol');
+  if(el.value != shown) el.value = shown;
+  el.style.background =
+    'linear-gradient(to right, var(--a) 0%, var(--a) ' + shown + '%, #2b3340 ' + shown + '%, #2b3340 100%)';
+  const lab = document.getElementById('volLabel');
+  lab.textContent = shown;
+  lab.classList.toggle('muted', shown === 0);
+
+  const btn = document.getElementById('volMute');
+  const m = isMuted();
+  btn.classList.toggle('muted', m);
+  btn.title = m ? 'ミュート解除 (M)' : 'ミュート (M)';
+  btn.setAttribute('aria-label', m ? 'ミュート解除' : 'ミュート');
 }
 
 /* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る */
@@ -205,13 +291,7 @@ function setVolume(v, silent){
       (masterVol > 0 && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
   });
-  const el = document.getElementById('vol');
-  if(el.value != masterVol) el.value = masterVol;
-  el.style.background =
-    'linear-gradient(to right, var(--a) 0%, var(--a) ' + masterVol + '%, #2b3340 ' + masterVol + '%, #2b3340 100%)';
-  const lab = document.getElementById('volLabel');
-  lab.textContent = masterVol;
-  lab.classList.toggle('muted', masterVol === 0);
+  renderVolume();
 }
 
 /* ================================================================
@@ -257,6 +337,7 @@ function togglePlay(){
   });
   if(!paused) applyAudio(audioSrc, true);
   renderTransport();
+  showCenter();
 }
 function goLive(){
   audioUnlocked = true;
@@ -323,11 +404,19 @@ function renderTransport(){
     'linear-gradient(to right, var(--a) 0%, var(--a) ' + pct + '%, #2b3340 ' + pct + '%, #2b3340 100%)';
 
   const label = document.getElementById('offsetLabel');
+  const btn = document.getElementById('golive');
   const atLive = off < 6 && !paused;
-  label.textContent = atLive ? '● LIVE' : '− ' + fmt(off);
-  label.classList.toggle('live', atLive);
+  label.textContent = atLive ? 'LIVE' : '− ' + fmt(off);
+  btn.classList.toggle('live', atLive);
+  // LIVE 中も押せる。表示が LIVE でも実際には数秒遅れていることがある
+  btn.setAttribute('aria-label', atLive
+    ? 'LIVE を再生中。押すと最先端へ追いつき直します'
+    : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
-  document.getElementById('playpause').firstChild.nodeValue = paused ? '▶' : '⏸';
+  document.body.classList.toggle('paused', paused);
+  const cb = document.getElementById('centerBtn');
+  cb.title = paused ? '再生 (K)' : '一時停止 (K)';
+  cb.setAttribute('aria-label', paused ? '再生' : '一時停止');
 }
 setInterval(() => { if(Object.values(ready).some(Boolean)) renderTransport(); }, 300);
 
@@ -383,34 +472,63 @@ function reclaimFocus(){
     try{ document.body.focus({preventScroll:true}); }catch(e){}
   }
 }
-document.getElementById('shield').addEventListener('mousedown', e => { e.preventDefault(); reclaimFocus(); });
+/* マウスは iframe へのフォーカス移動を止めるだけ。タッチはタップで操作パネルを開閉する */
+/* PC は映像のどこをクリックしても再生 / 停止（YouTube などと同じ） */
+document.getElementById('shield').addEventListener('click', () => {
+  if(isTouch) return;   // タッチは画面を触って中央ボタンを出す方式
+  togglePlay();
+});
+document.getElementById('shield').addEventListener('pointerdown', e => {
+  if(e.pointerType === 'mouse'){ e.preventDefault(); reclaimFocus(); return; }
+  if(!centerVisible()) swallowCenterClick = true;
+  // 縦画面は操作パネルが出たままなので、中央ボタンだけ出し直す
+  if(!autoHideEnabled()){ showCenter(); return; }
+  toggleChrome();
+});
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
-document.addEventListener('mousemove', () => { reclaimFocus(); showChrome(); }, {passive:true});
-document.addEventListener('pointerdown', showChrome, {passive:true});
+document.addEventListener('mousemove', () => { reclaimFocus(); if(!isTouch) showChrome(); }, {passive:true});
+document.addEventListener('pointerdown', e => { if(e.pointerType !== 'touch') showChrome(); }, {passive:true});
 /* ショートカットキーではメニューを出さない（マウス操作時のみ再表示） */
-['bottomChrome','setup'].forEach(id => {
-  const el = document.getElementById(id);
-  el.addEventListener('mouseenter', showChrome);
-  el.addEventListener('mouseleave', scheduleHideChrome);
-});
+if(isTouch){
+  // タッチには hover が無い。パネルを触るたびに自動非表示までの時間を延長する
+  ['bottomChrome','setup'].forEach(id =>
+    document.getElementById(id).addEventListener('pointerdown', showChrome, {passive:true}));
+}else{
+  ['bottomChrome','setup'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('mouseenter', showChrome);
+    el.addEventListener('mouseleave', scheduleHideChrome);
+  });
+}
 setInterval(reclaimFocus, 500);
 
-/* ---------- UI（再生中はアイドルで自動非表示） ---------- */
-const UI_IDLE_MS = 2500;
+/* ================================================================
+   UI の自動非表示
+   縦画面のスマホでは上下の UI が映像（16:9 の黒帯）に収まるので隠す
+   意味がない。横画面は高さが足りず映像を隠すので、タップするまで畳む。
+   PC は従来どおりアイドルで畳む（キャプチャ用途）。
+   ================================================================ */
+const landscapeMQ = matchMedia('(max-height:480px) and (orientation:landscape)');
+function autoHideEnabled(){ return !isTouch || landscapeMQ.matches; }
+const UI_IDLE_MS = isTouch ? 4500 : 2500;
 let uiHideTimer = null;
 
 function chromeInteractive(){
   const ae = document.activeElement;
   if(ae && ae.tagName === 'INPUT') return true;
-  const bottom = document.getElementById('bottomChrome');
-  const setup = document.getElementById('setup');
-  if(bottom.matches(':hover') || setup.matches(':hover')) return true;
+  if(!isTouch){
+    // タッチ端末は :hover がタップ後に貼りつき、自動非表示が永久に効かなくなる
+    const bottom = document.getElementById('bottomChrome');
+    const setup = document.getElementById('setup');
+    if(bottom.matches(':hover') || setup.matches(':hover')) return true;
+  }
   if(document.getElementById('help').classList.contains('show')) return true;
   if(!document.getElementById('morePanel').classList.contains('collapsed')) return true;
   return false;
 }
 function canAutoHideChrome(){
+  if(!autoHideEnabled()) return false;
   if(!document.getElementById('splash').classList.contains('gone')) return false;
   if(!KEYS.some(k => ready[k])) return false;
   if(chromeInteractive()) return false;
@@ -419,11 +537,54 @@ function canAutoHideChrome(){
 function showChrome(){
   document.body.classList.remove('chrome-hidden');
   scheduleHideChrome();
+  // PC の中央ボタンは操作パネルと連動させない。音声を切り替えるたびに
+  // マウスが動いて停止ボタンが出るのは邪魔なので、映像のクリックで出す
+  if(isTouch) showCenter();
 }
 function hideChrome(){
   if(!canAutoHideChrome()) return;
   document.body.classList.add('chrome-hidden');
 }
+/* タップやボタンによる明示的な格納。アイドル判定を待たない */
+function hideChromeNow(){
+  if(!document.getElementById('splash').classList.contains('gone')) return;
+  // 先に畳む。toggleMore / toggleHelp は末尾で showChrome() を呼ぶので順序が重要
+  toggleMore(false);
+  toggleHelp(false);
+  clearTimeout(uiHideTimer);
+  uiHideTimer = null;
+  document.body.classList.add('chrome-hidden');
+}
+function toggleChrome(){
+  if(document.body.classList.contains('chrome-hidden')) showChrome();
+  else if(autoHideEnabled()) hideChromeNow();
+}
+/* ================================================================
+   動画中央の再生 / 一時停止ボタン
+   操作パネルが消える環境（PC・横画面）では、パネルと同時に消える。
+   消えない縦画面では、止めた映像をそのまま見られるよう時間で消す。
+   ================================================================ */
+const CENTER_IDLE_MS = 3000;
+let centerTimer = null;
+/* 隠れている中央ボタンをタップで出したとき、同じタップの click が
+   （pointerdown で pointer-events が戻るため）ボタンに入ってしまう。
+   出現させたタップの click だけを 1 回捨てる */
+let swallowCenterClick = false;
+function centerVisible(){
+  return !document.body.classList.contains('center-hidden') &&
+         !document.body.classList.contains('chrome-hidden');
+}
+function showCenter(){
+  document.body.classList.remove('center-hidden');
+  clearTimeout(centerTimer);
+  centerTimer = null;
+  // 横画面スマホは操作パネルと一緒に消えるので独自タイマーは不要
+  if(isTouch && autoHideEnabled()) return;
+  if(!document.getElementById('splash').classList.contains('gone')) return;
+  if(!KEYS.some(k => ready[k])) return;
+  centerTimer = setTimeout(() => document.body.classList.add('center-hidden'), CENTER_IDLE_MS);
+}
+
 function scheduleHideChrome(){
   clearTimeout(uiHideTimer);
   uiHideTimer = null;
@@ -431,18 +592,80 @@ function scheduleHideChrome(){
   uiHideTimer = setTimeout(hideChrome, UI_IDLE_MS);
 }
 
+function fsElement(){
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+/* スマホでは #setup が3段になる。固定ヘッダーを避ける要素のために実測して配る */
+function syncSetupHeight(){
+  // 畳んでいるとき、およびカード内に置いているとき（固定ヘッダーではない）は 0。
+  // #nowAudio などの逃げ幅もそれに合わせる
+  const h = document.body.classList.contains('setupInCard')
+    ? 0
+    : Math.round(document.getElementById('setup').getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--setupH', h + 'px');
+}
+/* 狭い画面の導入画面では、注意書きを読んでから入力する順に並べたい。
+   #setup を固定ヘッダーから説明カードの中へ移す。読み込んだら元へ戻す。 */
+const narrowMQ = matchMedia('(max-width:700px)');
+function placeSetup(){
+  // file:// では警告表示のためカードの中身ごと差し替えるので触らない
+  if(location.protocol === 'file:') return;
+  const setup = document.getElementById('setup');
+  const slot = document.getElementById('setupSlot');
+  const inCard = narrowMQ.matches &&
+                 !document.getElementById('splash').classList.contains('gone');
+  if(inCard){
+    if(setup.parentNode !== slot) slot.appendChild(setup);
+  }else if(setup.parentNode === slot){
+    document.getElementById('setupAnchor').after(setup);
+  }
+  document.body.classList.toggle('setupInCard', inCard);
+  syncSetupHeight();
+}
+narrowMQ.addEventListener('change', () => { placeSetup(); applyOrientationMode(); });
+function toggleSetup(force){
+  const hidden = force !== undefined ? !force : !document.body.classList.contains('setupHidden');
+  document.body.classList.toggle('setupHidden', hidden);
+  syncSetupHeight();
+  showChrome();
+}
+/* 縦横で UI の方針が変わる。向きの変化と、再生開始時に適用する */
+function applyOrientationMode(){
+  const auto = autoHideEnabled();
+  document.body.classList.toggle('autohide', auto);
+  if(!document.getElementById('splash').classList.contains('gone')){
+    placeSetup();
+    return;
+  }
+  // 再生中: 縦は入力欄を常設、横は映像優先で出さない
+  if(isTouch) toggleSetup(!landscapeMQ.matches);
+  auto ? scheduleHideChrome() : showChrome();
+}
+landscapeMQ.addEventListener('change', applyOrientationMode);
+if(window.ResizeObserver) new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
+window.addEventListener('resize', syncSetupHeight);
+window.addEventListener('orientationchange', () => setTimeout(syncSetupHeight, 250));
+placeSetup();
+applyOrientationMode();
+
 function syncFsButton(){
-  const on = !!document.fullscreenElement;
+  const on = !!fsElement();
   const btn = document.getElementById('fsBtn');
   btn.classList.toggle('isFs', on);
   btn.title = on ? '全画面解除 (F)' : '全画面 (F)';
   btn.setAttribute('aria-label', on ? '全画面解除' : '全画面');
 }
 function toggleFs(){
-  if(document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen();
+  if(!fsSupported()) return;
+  const el = document.documentElement;
+  if(fsElement()){
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }else{
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  }
 }
 document.addEventListener('fullscreenchange', syncFsButton);
+document.addEventListener('webkitfullscreenchange', syncFsButton);
 function toggleMore(force){
   const panel = document.getElementById('morePanel');
   const btn = document.getElementById('toggleMore');
@@ -463,6 +686,7 @@ document.getElementById('load').addEventListener('click', () => {
   const ids = {};
   KEYS.forEach(k => ids[k] = extractId(document.getElementById('u-'+k).value));
   if(!ids.main && !ids.a && !ids.b){ setStatusLine('URLを1つ以上入力してください'); return; }
+  showLoading();
   if(apiReady) build(ids);
   else pending = ids;
 });
@@ -472,17 +696,37 @@ document.getElementById('copylink').addEventListener('click', function(){
     const id = extractId(document.getElementById('u-'+k).value);
     if(id) u.searchParams.set(k, id);
   });
-  navigator.clipboard.writeText(u.toString());
-  this.textContent = 'コピーしました';
-  setTimeout(() => this.textContent = '設定リンクをコピー', 1400);
+  const text = u.toString();
+  // 記号だけのボタンなので、完了はチェックの記号に差し替えて示す
+  const done = () => {
+    this.classList.add('copied');
+    this.setAttribute('aria-label', 'コピーしました');
+    setTimeout(() => {
+      this.classList.remove('copied');
+      this.setAttribute('aria-label', '設定リンクをコピー');
+    }, 1400);
+  };
+  // clipboard API は非セキュアコンテキストや一部のモバイルブラウザに無い
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, () => setStatusLine('コピーできませんでした: ' + text));
+  }else{
+    setStatusLine('コピーできませんでした: ' + text);
+  }
 });
 
 document.getElementById('swap').addEventListener('click', swapVc);
 document.getElementById('golive').addEventListener('click', goLive);
-document.getElementById('playpause').addEventListener('click', togglePlay);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
+document.getElementById('centerBtn').addEventListener('click', () => {
+  if(swallowCenterClick) return;   // 出現させたタップでは押さない
+  togglePlay();
+});
+/* バブル段階なので、上のボタンの処理が終わってから解除される。
+   ボタン以外を押したタップでもここに来るので取り残されない */
+window.addEventListener('click', () => { swallowCenterClick = false; });
 document.getElementById('fsBtn').addEventListener('click', toggleFs);
+document.getElementById('chromeBtn').addEventListener('click', hideChromeNow);
 document.getElementById('toggleMore').addEventListener('click', () => toggleMore());
 document.getElementById('helpbtn').addEventListener('click', () => toggleHelp(true));
 document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(true));
@@ -490,14 +734,22 @@ document.getElementById('helpclose').addEventListener('click', () => toggleHelp(
 
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
 document.querySelectorAll('[data-aud]').forEach(b => b.addEventListener('click', () => {
-  if(b.dataset.aud !== 'none') audioUnlocked = true;
+  if(b.dataset.aud === 'none'){ toggleMute(); return; }
+  audioUnlocked = true;
   applyAudio(b.dataset.aud);
 }));
 document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
 
-document.getElementById('vol').addEventListener('input', function(){ setVolume(this.value); });
+document.getElementById('vol').addEventListener('input', function(){
+  // unmute() は renderVolume() でバーを描き直すので、値は先に控えておく
+  const v = parseFloat(this.value);
+  // ミュート中にバーを動かしたら鳴らす（動かしたのに無音、を避ける）
+  if(v > 0 && audioSrc === 'none') unmute();
+  setVolume(v);
+});
+document.getElementById('volMute').addEventListener('click', toggleMute);
 setVolume(100);
 
 const scrubEl = document.getElementById('scrub');
@@ -529,7 +781,7 @@ window.addEventListener('keydown', e => {
     'w':()=>{ audioUnlocked = true; applyAudio('a'); },
     'e':()=>{ audioUnlocked = true; applyAudio('b'); },
     'r':()=>{ audioUnlocked = true; applyAudio('both'); },
-    'm':()=>applyAudio('none'),
+    'm':toggleMute,
     'k':togglePlay, 'l':goLive, 'v':toggleEco, 'd':toggleDiag,
     'f':toggleFs
   };
@@ -539,5 +791,6 @@ window.addEventListener('keydown', e => {
 
 /* ---------- URLパラメータ: ミュートのまま自動再生 ---------- */
 if(KEYS.some(k => fromUrl[k])){
+  showLoading();
   const iv = setInterval(() => { if(apiReady){ clearInterval(iv); build(fromUrl); } }, 100);
 }
