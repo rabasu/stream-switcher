@@ -1,11 +1,17 @@
 :root{
+  /* #setup の実測高さ。JS が更新する。スマホでは入力欄が縦積みになり大きく変わる */
+  --setupH:96px;
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
   --a:#4ea8de; --b:#f2a65a; --main:#8b9aa8; --live:#e5484d; --ok:#7bc47f;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
-  font-family:"Segoe UI",Hiragino Sans,Meiryo,sans-serif;}
+  font-family:"Segoe UI",Hiragino Sans,Meiryo,sans-serif;
+  overscroll-behavior:none;-webkit-text-size-adjust:100%;}
+/* タップ操作: ダブルタップズームと長押し選択を止め、操作を取りこぼさない */
+body{touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-select:none;}
 
 /* ===== ステージ ===== */
 #stage{position:fixed;inset:0;background:#000;}
@@ -88,11 +94,40 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--
   box-shadow:0 4px 18px rgba(0,0,0,.35);
   transition:background .15s,transform .12s;
 }
+#chromeBtn{
+  position:absolute;right:72px;bottom:100%;margin-bottom:10px;
+  width:44px;height:44px;padding:0;border:none;border-radius:10px;cursor:pointer;
+  display:none;align-items:center;justify-content:center;
+  color:#fff;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);
+  box-shadow:0 4px 18px rgba(0,0,0,.35);
+}
+body.touch #chromeBtn{display:flex;}
+body.noFs #chromeBtn{right:18px;}
+body.noFs #fsBtn{display:none;}
+/* iOS は HTML5 の音量 API を無視する。効かないスライダーは出さない */
+body.noVol #volWrap{display:none;}
+/* スマホでは読み込み後も #setup が画面の4割を占める。畳んで「配信URL」で出し直す */
+body.setupHidden #setup{display:none;}
+#setupbtn{display:none;}
+body.touch #setupbtn{display:inline-flex;}
+#setupbtn.on{background:var(--sub);border-color:var(--sub);color:#04060a;}
+body.touch .pill kbd,
+body.touch #swap small,
+body.touch .kbOnly{display:none;}
+body:not(.touch) .touchOnly{display:none;}
+
 #fsBtn:hover{background:rgba(0,0,0,.62);}
 #fsBtn:active{transform:scale(.96);}
 #fsBtn .fsExit{display:none;}
 #fsBtn.isFs .fsEnter{display:none;}
 #fsBtn.isFs .fsExit{display:block;}
+
+/* 導入画面では操作バーは何も操作できない。狭い画面を食うので畳み、
+   #hint（エラー表示）だけ残す */
+#splash:not(.gone) ~ #bottomChrome > #bar,
+#splash:not(.gone) ~ #bottomChrome > #fsBtn,
+#splash:not(.gone) ~ #bottomChrome > #chromeBtn{display:none;}
+#splash:not(.gone) ~ #bottomChrome > #hint{padding-bottom:12px;}
 
 /* 再生中のアイドルでUIを自動非表示 */
 body.chrome-hidden #bottomChrome,
@@ -266,7 +301,94 @@ body.chrome-hidden #diag{
 #help .contact a{color:var(--a);text-decoration:none;font-weight:700;}
 #help .contact a:hover{text-decoration:underline;}
 
+/* 操作バーの直上。以前は fixed bottom:0 で #bar の背景に隠れ、エラー文が読めなかった */
 #hint{
-  position:fixed;bottom:0;left:0;right:0;z-index:18;text-align:center;
-  padding:5px;font-size:.7rem;color:#3d4552;pointer-events:none;
+  position:relative;z-index:1;text-align:center;
+  padding:0 12px 6px;font-size:.7rem;color:#8b93a2;pointer-events:none;
+  text-shadow:0 1px 4px rgba(0,0,0,.9);
+}
+
+
+/* ================================================================
+   スマホ・タブレット
+   狭幅では左の MAIN/VC-A/VC-B 列を等分し、タイムラインや音声の
+   補助操作（.barTail）は行全体へ折り返す。
+   ================================================================ */
+@media (max-width:860px){
+  /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
+  #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 24px;}
+  .card h2{font-size:1.3rem;}
+  .card ol{font-size:.82rem;line-height:1.8;}
+
+  #setup{
+    padding:10px max(12px,env(safe-area-inset-left)) 10px max(12px,env(safe-area-inset-right));
+    gap:8px;max-height:60svh;overflow-y:auto;
+  }
+  .field{flex:1 1 100%;min-width:0;}
+  .field input{font-size:16px;}          /* 16px 未満だと iOS がフォーカス時に拡大する */
+  #setup button{flex:1 1 30%;height:42px;padding:0 10px;}
+
+  #nowAudio{top:calc(var(--setupH) + 8px);right:12px;padding:6px 11px;font-size:.75rem;}
+  #diag{top:calc(var(--setupH) + 8px);left:12px;font-size:.66rem;padding:8px 10px;}
+
+  #bar{
+    padding:10px max(12px,env(safe-area-inset-left))
+           calc(8px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-right));
+    gap:8px;
+  }
+  #fsBtn,#chromeBtn{width:40px;height:40px;margin-bottom:8px;}
+  #fsBtn{right:12px;}
+  #chromeBtn{right:60px;}
+  body.noFs #chromeBtn{right:12px;}
+
+  .barGrid{grid-template-columns:2.2em repeat(3,minmax(0,1fr));column-gap:6px;row-gap:8px;}
+  .barTail{grid-column:1 / -1;gap:6px;}
+  .barGrid > .srcBtn{padding:10px 4px;font-size:.82rem;}
+  #timeline{width:100%;}
+  #offsetLabel{min-width:64px;font-size:.75rem;}
+  #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
+  #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
+  #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
+  #volWrap{flex:1 1 100%;order:3;}
+  #vol{flex:1 1 auto;width:auto;}
+
+  .secondaryRow{gap:10px;max-height:34svh;overflow-y:auto;}
+  .group{flex:1 1 100%;}
+  .secondaryRow .row{flex-wrap:wrap;}
+  .secondaryRow .pill{flex:1 1 auto;padding:9px 10px;}
+  .trim button{width:32px;height:32px;}
+
+  #hint{font-size:.66rem;}
+
+  #help{padding:16px;}
+  #help .inner{padding-top:44px;}
+  #help td:first-child{width:96px;font-size:.76rem;}
+  #help table{font-size:.8rem;}
+  #help .close{top:10px;right:10px;padding:8px 12px;}
+}
+
+/* 横向きスマホ: 幅は足りるので入力欄と操作バーは横並びに戻し、高さを稼ぐ */
+@media (max-height:480px) and (orientation:landscape) and (min-width:640px){
+  #setup{padding-top:8px;padding-bottom:8px;max-height:70svh;}
+  .field{flex:1 1 150px;min-width:120px;gap:3px;}
+  #setup button{flex:0 1 auto;height:38px;}
+  .barGrid{grid-template-columns:2.5em repeat(3,5.6em) minmax(0,1fr);}
+  .barTail{grid-column:auto;}
+  #audioTail > .pill{flex:0 1 auto;}
+  #swap{flex:0 1 auto;order:0;min-width:120px;}
+  #volWrap{flex:0 1 auto;order:0;}
+  #vol{width:90px;flex:0 0 auto;}
+  #toggleMore{margin-left:auto;order:0;}
+}
+
+/* 横向きスマホは高さが足りないので、バーを詰めて映像を優先する */
+@media (max-height:480px) and (orientation:landscape){
+  #bar{padding-top:10px;gap:8px;}
+  .barGrid{row-gap:6px;}
+  .barGrid > .srcBtn{padding:8px 4px;}
+  #audioTail > .pill,#swap{padding:8px;}
+  #hint{display:none;}
+  /* 高さが無い。音声の行が色で現在値を示すので重複表示は落とす */
+  #nowAudio{display:none;}
+  #fsBtn,#chromeBtn{width:36px;height:36px;margin-bottom:6px;}
 }

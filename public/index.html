@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Stream Switcher — 複数配信の音声切替コンソール</title>
 <link rel="stylesheet" href="stream-switcher.css">
@@ -62,12 +62,20 @@
 <div id="nowAudio"><span class="dot"></span><span id="audioLabel">MAIN 音声</span></div>
 
 <div id="bottomChrome">
+<div id="hint">Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ</div>
+
 <button type="button" id="fsBtn" title="全画面 (F)" aria-label="全画面">
   <svg class="fsEnter" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
     <path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
   </svg>
   <svg class="fsExit" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
     <path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
+  </svg>
+</button>
+
+<button type="button" id="chromeBtn" title="操作パネルを隠す" aria-label="操作パネルを隠す">
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+    <path fill="currentColor" d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/>
   </svg>
 </button>
 
@@ -135,6 +143,7 @@
     <div class="group">
       <span>設定</span>
       <div class="row">
+        <button class="pill" id="setupbtn">配信URL</button>
         <button class="pill on" id="eco" data-k="both">省帯域<kbd>V</kbd></button>
         <button class="pill" id="diagbtn" data-k="both">診断<kbd>D</kbd></button>
         <button class="pill" id="helpbtn2">ヘルプ<kbd>?</kbd></button>
@@ -144,13 +153,11 @@
 </div>
 </div>
 
-<div id="hint">Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ</div>
-
 <div id="help">
   <button class="close" id="helpclose">ヘルプを閉じる (?)</button>
   <div class="inner">
-    <h3>キーボードショートカット</h3>
-    <table>
+    <h3 class="kbOnly">キーボードショートカット</h3>
+    <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
       <tr><td>Space</td><td>VC-A と VC-B の音声を交互に切り替える（映像は動きません）。MAIN やミュートのときは VC-A に入ります</td></tr>
       <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
@@ -171,6 +178,18 @@
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
       <tr><td>?</td><td>このヘルプ</td></tr>
     </table>
+    <h3 class="touchOnly">操作方法</h3>
+    <table class="touchOnly">
+      <tr><th colspan="2">画面の操作</th></tr>
+      <tr><td>画面をタップ</td><td>操作パネルの表示 / 非表示</td></tr>
+      <tr><td>A ⇄ B</td><td>VC-A と VC-B の音声を交互に切り替える</td></tr>
+      <tr><td>映像 / 音声の行</td><td>MAIN・VC-A・VC-B を直接指定する</td></tr>
+      <tr><td>音量</td><td>iPhone・iPad ではブラウザから音量を変えられないため、端末の音量ボタンで調整してください</td></tr>
+      <tr><td>全画面</td><td>iPhone は全画面に対応していません。Safari のツールバーを隠すか、横向きでご利用ください</td></tr>
+      <tr><td>配信URL</td><td>その他 → 設定 の <b>配信URL</b> で入力欄を出し直せます</td></tr>
+      <tr><td>通信量</td><td>最大3本を同時受信します。モバイル回線では<b>省帯域</b>（その他 → 設定）を ON のままにしてください</td></tr>
+    </table>
+
     <p class="contact">
       配信で使用する場合は、ミラーの許諾を得ている動画のみを使用してください。許諾の確認・取得は利用者の責任で行ってください。<br><br>
       不具合の報告や要望は

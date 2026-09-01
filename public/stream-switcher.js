@@ -7,8 +7,27 @@ let audioSrc = 'main';
 var ecoMode = true;
 var diagOn = false;
 
+/* ================================================================
+   端末判定
+   スマホでは (1) キーボードが無い (2) iOS が HTML5 の音量 API を
+   無視する (3) iPhone に要素全画面が無い、の3点でUIを変える。
+   ================================================================ */
+const isTouch = matchMedia('(hover:none) and (pointer:coarse)').matches;
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function fsSupported(){
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+}
+if(isTouch) document.body.classList.add('touch');
+/* iOS の <video> 音量はハードウェア固定。効かないスライダーは出さない */
+if(isIOS) document.body.classList.add('noVol');
+if(!fsSupported()) document.body.classList.add('noFs');
+
 /* ---------- ステータス表示 ---------- */
-const HINT_DEFAULT = 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
+const HINT_DEFAULT = isTouch
+  ? '画面をタップすると操作パネルを表示 / 非表示できます'
+  : 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
@@ -19,6 +38,8 @@ function setStatusLine(msg){
     el.style.color = '';
   }, 6000);
 }
+
+document.getElementById('hint').textContent = HINT_DEFAULT;
 
 /* ---------- 動画ID抽出 ---------- */
 function extractId(s){
@@ -112,6 +133,7 @@ function build(ids){
     });
   });
   document.getElementById('splash').classList.add('gone');
+  if(isTouch) toggleSetup(false);   // 狭い画面では映像を優先。「配信URL」で出し直せる
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
   applyAudio(audioSrc, true);
   showChrome();
@@ -383,29 +405,42 @@ function reclaimFocus(){
     try{ document.body.focus({preventScroll:true}); }catch(e){}
   }
 }
-document.getElementById('shield').addEventListener('mousedown', e => { e.preventDefault(); reclaimFocus(); });
+/* マウスは iframe へのフォーカス移動を止めるだけ。タッチはタップで操作パネルを開閉する */
+document.getElementById('shield').addEventListener('pointerdown', e => {
+  if(e.pointerType === 'mouse'){ e.preventDefault(); reclaimFocus(); return; }
+  toggleChrome();
+});
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
-document.addEventListener('mousemove', () => { reclaimFocus(); showChrome(); }, {passive:true});
-document.addEventListener('pointerdown', showChrome, {passive:true});
+document.addEventListener('mousemove', () => { reclaimFocus(); if(!isTouch) showChrome(); }, {passive:true});
+document.addEventListener('pointerdown', e => { if(e.pointerType !== 'touch') showChrome(); }, {passive:true});
 /* ショートカットキーではメニューを出さない（マウス操作時のみ再表示） */
-['bottomChrome','setup'].forEach(id => {
-  const el = document.getElementById(id);
-  el.addEventListener('mouseenter', showChrome);
-  el.addEventListener('mouseleave', scheduleHideChrome);
-});
+if(isTouch){
+  // タッチには hover が無い。パネルを触るたびに自動非表示までの時間を延長する
+  ['bottomChrome','setup'].forEach(id =>
+    document.getElementById(id).addEventListener('pointerdown', showChrome, {passive:true}));
+}else{
+  ['bottomChrome','setup'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('mouseenter', showChrome);
+    el.addEventListener('mouseleave', scheduleHideChrome);
+  });
+}
 setInterval(reclaimFocus, 500);
 
 /* ---------- UI（再生中はアイドルで自動非表示） ---------- */
-const UI_IDLE_MS = 2500;
+const UI_IDLE_MS = isTouch ? 4500 : 2500;
 let uiHideTimer = null;
 
 function chromeInteractive(){
   const ae = document.activeElement;
   if(ae && ae.tagName === 'INPUT') return true;
-  const bottom = document.getElementById('bottomChrome');
-  const setup = document.getElementById('setup');
-  if(bottom.matches(':hover') || setup.matches(':hover')) return true;
+  if(!isTouch){
+    // タッチ端末は :hover がタップ後に貼りつき、自動非表示が永久に効かなくなる
+    const bottom = document.getElementById('bottomChrome');
+    const setup = document.getElementById('setup');
+    if(bottom.matches(':hover') || setup.matches(':hover')) return true;
+  }
   if(document.getElementById('help').classList.contains('show')) return true;
   if(!document.getElementById('morePanel').classList.contains('collapsed')) return true;
   return false;
@@ -424,6 +459,20 @@ function hideChrome(){
   if(!canAutoHideChrome()) return;
   document.body.classList.add('chrome-hidden');
 }
+/* タップやボタンによる明示的な格納。アイドル判定を待たない */
+function hideChromeNow(){
+  if(!document.getElementById('splash').classList.contains('gone')) return;
+  // 先に畳む。toggleMore / toggleHelp は末尾で showChrome() を呼ぶので順序が重要
+  toggleMore(false);
+  toggleHelp(false);
+  clearTimeout(uiHideTimer);
+  uiHideTimer = null;
+  document.body.classList.add('chrome-hidden');
+}
+function toggleChrome(){
+  if(document.body.classList.contains('chrome-hidden')) showChrome();
+  else hideChromeNow();
+}
 function scheduleHideChrome(){
   clearTimeout(uiHideTimer);
   uiHideTimer = null;
@@ -431,18 +480,45 @@ function scheduleHideChrome(){
   uiHideTimer = setTimeout(hideChrome, UI_IDLE_MS);
 }
 
+function fsElement(){
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+/* スマホでは #setup が3段になる。固定ヘッダーを避ける要素のために実測して配る */
+function syncSetupHeight(){
+  // 畳んでいるときは 0。#nowAudio などの逃げ幅もそれに合わせる
+  const h = Math.round(document.getElementById('setup').getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--setupH', h + 'px');
+}
+function toggleSetup(force){
+  const hidden = force !== undefined ? !force : !document.body.classList.contains('setupHidden');
+  document.body.classList.toggle('setupHidden', hidden);
+  document.getElementById('setupbtn').classList.toggle('on', !hidden);
+  syncSetupHeight();
+  showChrome();
+}
+if(window.ResizeObserver) new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
+window.addEventListener('resize', syncSetupHeight);
+window.addEventListener('orientationchange', () => setTimeout(syncSetupHeight, 250));
+syncSetupHeight();
+
 function syncFsButton(){
-  const on = !!document.fullscreenElement;
+  const on = !!fsElement();
   const btn = document.getElementById('fsBtn');
   btn.classList.toggle('isFs', on);
   btn.title = on ? '全画面解除 (F)' : '全画面 (F)';
   btn.setAttribute('aria-label', on ? '全画面解除' : '全画面');
 }
 function toggleFs(){
-  if(document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen();
+  if(!fsSupported()) return;
+  const el = document.documentElement;
+  if(fsElement()){
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }else{
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  }
 }
 document.addEventListener('fullscreenchange', syncFsButton);
+document.addEventListener('webkitfullscreenchange', syncFsButton);
 function toggleMore(force){
   const panel = document.getElementById('morePanel');
   const btn = document.getElementById('toggleMore');
@@ -472,9 +548,17 @@ document.getElementById('copylink').addEventListener('click', function(){
     const id = extractId(document.getElementById('u-'+k).value);
     if(id) u.searchParams.set(k, id);
   });
-  navigator.clipboard.writeText(u.toString());
-  this.textContent = 'コピーしました';
-  setTimeout(() => this.textContent = '設定リンクをコピー', 1400);
+  const text = u.toString();
+  const done = () => {
+    this.textContent = 'コピーしました';
+    setTimeout(() => this.textContent = '設定リンクをコピー', 1400);
+  };
+  // clipboard API は非セキュアコンテキストや一部のモバイルブラウザに無い
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, () => setStatusLine('コピーできませんでした: ' + text));
+  }else{
+    setStatusLine('コピーできませんでした: ' + text);
+  }
 });
 
 document.getElementById('swap').addEventListener('click', swapVc);
@@ -483,6 +567,8 @@ document.getElementById('playpause').addEventListener('click', togglePlay);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
 document.getElementById('fsBtn').addEventListener('click', toggleFs);
+document.getElementById('chromeBtn').addEventListener('click', hideChromeNow);
+document.getElementById('setupbtn').addEventListener('click', () => toggleSetup());
 document.getElementById('toggleMore').addEventListener('click', () => toggleMore());
 document.getElementById('helpbtn').addEventListener('click', () => toggleHelp(true));
 document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(true));
