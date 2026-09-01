@@ -146,12 +146,29 @@ body.touch #toggleMore .chev{display:none;}
 #fsBtn.isFs .fsEnter{display:none;}
 #fsBtn.isFs .fsExit{display:block;}
 
+/* 狭い画面の導入画面では、#setup を固定ヘッダーではなく説明カードの
+   流れ（注意書きの下）に置く。JS が #setupSlot へ移動させる */
+body.setupInCard #setup{
+  position:static;z-index:auto;background:transparent;border-bottom:none;
+  backdrop-filter:none;padding:0;max-height:none;overflow:visible;
+}
+#setupSlot:empty{display:none;}
+body.setupInCard #setupSlot{margin-top:22px;}
+/* 導入画面ではまだ再生していない。音声インジケーターは出さない */
+#splash:not(.gone) ~ #nowAudio{display:none;}
+
 /* 導入画面では操作バーは何も操作できない。狭い画面を食うので畳み、
    #hint（エラー表示）だけ残す */
 #splash:not(.gone) ~ #bottomChrome > #bar,
 #splash:not(.gone) ~ #bottomChrome > #fsBtn,
 #splash:not(.gone) ~ #bottomChrome > #chromeBtn{display:none;}
-#splash:not(.gone) ~ #bottomChrome > #hint{padding-bottom:12px;}
+/* 導入画面では操作の案内は意味がなく、カード下端に重なるので出さない。
+   エラー（.alert）だけは読めるように背景を敷いて残す */
+#splash:not(.gone) ~ #bottomChrome > #hint:not(.alert){display:none;}
+#splash:not(.gone) ~ #bottomChrome > #hint.alert{
+  background:rgba(7,9,12,.94);
+  padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
+}
 
 /* 再生中のアイドルでUIを自動非表示 */
 body.chrome-hidden #bottomChrome,
@@ -345,6 +362,7 @@ body.chrome-hidden #diag{
   padding:0 12px 6px;font-size:.7rem;color:#8b93a2;pointer-events:none;
   text-shadow:0 1px 4px rgba(0,0,0,.9);
 }
+#hint.alert{color:var(--live);}
 
 
 /* ================================================================
@@ -356,7 +374,7 @@ body.chrome-hidden #diag{
    横並びのままで足りるので、ここには入れない */
 @media (max-width:700px){
   /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
-  #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 24px;}
+  #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 52px;}
   .card h2{font-size:1.3rem;}
   .card ol{font-size:.82rem;line-height:1.8;}
 

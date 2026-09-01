@@ -31,11 +31,11 @@ const HINT_DEFAULT = isTouch
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
-  el.style.color = '#e5484d';
+  el.classList.add('alert');   // 導入画面では .alert のときだけ表示する
   clearTimeout(setStatusLine._t);
   setStatusLine._t = setTimeout(() => {
     el.textContent = HINT_DEFAULT;
-    el.style.color = '';
+    el.classList.remove('alert');
   }, 6000);
 }
 
@@ -133,6 +133,7 @@ function build(ids){
     });
   });
   document.getElementById('splash').classList.add('gone');
+  placeSetup();                     // カードから固定ヘッダーの位置へ戻す
   if(isTouch) toggleSetup(false);   // 狭い画面では映像を優先。「配信URL」で出し直せる
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
   applyAudio(audioSrc, true);
@@ -490,10 +491,32 @@ function fsElement(){
 }
 /* スマホでは #setup が3段になる。固定ヘッダーを避ける要素のために実測して配る */
 function syncSetupHeight(){
-  // 畳んでいるときは 0。#nowAudio などの逃げ幅もそれに合わせる
-  const h = Math.round(document.getElementById('setup').getBoundingClientRect().height);
+  // 畳んでいるとき、およびカード内に置いているとき（固定ヘッダーではない）は 0。
+  // #nowAudio などの逃げ幅もそれに合わせる
+  const h = document.body.classList.contains('setupInCard')
+    ? 0
+    : Math.round(document.getElementById('setup').getBoundingClientRect().height);
   document.documentElement.style.setProperty('--setupH', h + 'px');
 }
+/* 狭い画面の導入画面では、注意書きを読んでから入力する順に並べたい。
+   #setup を固定ヘッダーから説明カードの中へ移す。読み込んだら元へ戻す。 */
+const narrowMQ = matchMedia('(max-width:700px)');
+function placeSetup(){
+  // file:// では警告表示のためカードの中身ごと差し替えるので触らない
+  if(location.protocol === 'file:') return;
+  const setup = document.getElementById('setup');
+  const slot = document.getElementById('setupSlot');
+  const inCard = narrowMQ.matches &&
+                 !document.getElementById('splash').classList.contains('gone');
+  if(inCard){
+    if(setup.parentNode !== slot) slot.appendChild(setup);
+  }else if(setup.parentNode === slot){
+    document.getElementById('setupAnchor').after(setup);
+  }
+  document.body.classList.toggle('setupInCard', inCard);
+  syncSetupHeight();
+}
+narrowMQ.addEventListener('change', placeSetup);
 function toggleSetup(force){
   const hidden = force !== undefined ? !force : !document.body.classList.contains('setupHidden');
   document.body.classList.toggle('setupHidden', hidden);
@@ -504,7 +527,7 @@ function toggleSetup(force){
 if(window.ResizeObserver) new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
 window.addEventListener('resize', syncSetupHeight);
 window.addEventListener('orientationchange', () => setTimeout(syncSetupHeight, 250));
-syncSetupHeight();
+placeSetup();
 
 function syncFsButton(){
   const on = !!fsElement();
