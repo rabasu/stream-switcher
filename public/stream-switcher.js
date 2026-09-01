@@ -25,10 +25,9 @@ if(isIOS) document.body.classList.add('noVol');
 if(!fsSupported()) document.body.classList.add('noFs');
 
 /* ---------- ステータス表示 ---------- */
-/* 縦画面のスマホは操作パネルを畳まないので、タップの案内は出さない */
+/* タッチ端末では常時空。この行はエラー表示専用として使う */
 function hintDefault(){
-  if(!isTouch) return 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
-  return landscapeMQ.matches ? '画面をタップすると操作パネルを表示 / 非表示できます' : '';
+  return isTouch ? '' : 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
 }
 function setStatusLine(msg){
   const el = document.getElementById('hint');
@@ -40,6 +39,8 @@ function setStatusLine(msg){
     el.classList.remove('alert');
   }, 6000);
 }
+
+document.getElementById('hint').textContent = hintDefault();
 
 /* ---------- 動画ID抽出 ---------- */
 function extractId(s){
@@ -554,8 +555,6 @@ function toggleSetup(force){
 function applyOrientationMode(){
   const auto = autoHideEnabled();
   document.body.classList.toggle('autohide', auto);
-  const hint = document.getElementById('hint');
-  if(!hint.classList.contains('alert')) hint.textContent = hintDefault();
   if(!document.getElementById('splash').classList.contains('gone')){
     placeSetup();
     return;
