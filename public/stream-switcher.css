@@ -147,6 +147,23 @@ body.touch #diagbtn,
 /* モバイル回線で省帯域を切る理由がないので固定（既定値のまま） */
 body.touch #eco{display:none;}
 
+/* 再生中の固定ヘッダーは横幅が限られるので、コピーとヘルプはアイコンに
+   して枠を詰め、「読み込む」に幅を回す。導入画面のカードでは手順の
+   説明がボタン名を指しているので文字のまま残す。
+   （「ヘルプ (?)」の (?) はキーボードショートカットなのでここでは消える）*/
+.btnIcon{display:none;}
+body.touch #splash.gone ~ #setup .btnText{display:none;}
+body.touch #splash.gone ~ #setup .btnIcon{display:block;}
+body.touch #splash.gone ~ #setup .iconDone{display:none;}
+body.touch #splash.gone ~ #setup #copylink.copied .iconCopy{display:none;}
+body.touch #splash.gone ~ #setup #copylink.copied .iconDone{display:block;}
+body.touch #splash.gone ~ #setup #copylink.copied{color:var(--ok);border-color:var(--ok);}
+body.touch #splash.gone ~ #setup #copylink,
+body.touch #splash.gone ~ #setup #helpbtn{
+  flex:0 0 46px;padding:0;display:flex;align-items:center;justify-content:center;
+}
+body.touch #splash.gone ~ #setup #load{flex:1 1 auto;}
+
 /* 右端の細い列に入るボタンはアイコンにする */
 .pillIcon{display:none;}
 body.touch .pillIcon{display:block;}

@@ -619,9 +619,16 @@ document.getElementById('copylink').addEventListener('click', function(){
     if(id) u.searchParams.set(k, id);
   });
   const text = u.toString();
+  // アイコン表示のときは textContent を差し替えると SVG が消えるので、
+  // 文字は .btnText だけ、アイコンは .copied の付け外しで切り替える
+  const label = this.querySelector('.btnText');
   const done = () => {
-    this.textContent = 'コピーしました';
-    setTimeout(() => this.textContent = '設定リンクをコピー', 1400);
+    label.textContent = 'コピーしました';
+    this.classList.add('copied');
+    setTimeout(() => {
+      label.textContent = '設定リンクをコピー';
+      this.classList.remove('copied');
+    }, 1400);
   };
   // clipboard API は非セキュアコンテキストや一部のモバイルブラウザに無い
   if(navigator.clipboard && navigator.clipboard.writeText){
