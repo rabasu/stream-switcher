@@ -122,6 +122,8 @@ function build(ids){
       videoId: ids[k],
       playerVars:{
         rel:0, playsinline:1, controls:0, disablekb:1,
+        fs:0,                            // プレーヤー側の全画面ボタンを出さない
+        iv_load_policy:3,                // アノテーション / カードを出さない
         autoplay:1,
         mute:1,
         origin: location.origin          // エラー153対策
@@ -474,21 +476,40 @@ function reclaimFocus(){
 }
 /* マウスは iframe へのフォーカス移動を止めるだけ。タッチはタップで操作パネルを開閉する */
 /* PC は映像のどこをクリックしても再生 / 停止（YouTube などと同じ） */
-document.getElementById('shield').addEventListener('click', () => {
+document.getElementById('shield').addEventListener('click', e => {
   if(isTouch) return;   // タッチは画面を触って中央ボタンを出す方式
-  togglePlay();
+  // 中央ボタン以外の映像上をクリックしたら上下のUIを隠す
+  lastPointer = { x: e.clientX, y: e.clientY };
+  hideChromeNow();
 });
 document.getElementById('shield').addEventListener('pointerdown', e => {
   if(e.pointerType === 'mouse'){ e.preventDefault(); reclaimFocus(); return; }
   if(!centerVisible()) swallowCenterClick = true;
   // 縦画面は操作パネルが出たままなので、中央ボタンだけ出し直す
   if(!autoHideEnabled()){ showCenter(); return; }
-  toggleChrome();
+  // 横画面は操作パネルごと出し入れする。中央ボタンは映像を触ったここでだけ出す
+  if(document.body.classList.contains('chrome-hidden')){ showChrome(); showCenter(); }
+  else hideChromeNow();
 });
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
-document.addEventListener('mousemove', () => { reclaimFocus(); if(!isTouch) showChrome(); }, {passive:true});
-document.addEventListener('pointerdown', e => { if(e.pointerType !== 'touch') showChrome(); }, {passive:true});
+document.addEventListener('mousemove', e => {
+  lastPointer = { x: e.clientX, y: e.clientY };
+  reclaimFocus();
+  if(isTouch) return;
+  if(suppressFrom){
+    if(Math.hypot(e.clientX - suppressFrom.x, e.clientY - suppressFrom.y) < SUPPRESS_PX) return;
+    suppressFrom = null;
+  }
+  showChrome();
+}, {passive:true});
+document.addEventListener('pointerdown', e => {
+  if(e.pointerType === 'touch') return;
+  // 映像のクリックは隠す側なので、押した時点で出さない
+  if(e.target.id === 'shield') return;
+  suppressFrom = null;
+  showChrome();
+}, {passive:true});
 /* ショートカットキーではメニューを出さない（マウス操作時のみ再表示） */
 if(isTouch){
   // タッチには hover が無い。パネルを触るたびに自動非表示までの時間を延長する
@@ -537,27 +558,36 @@ function canAutoHideChrome(){
 function showChrome(){
   document.body.classList.remove('chrome-hidden');
   scheduleHideChrome();
-  // PC の中央ボタンは操作パネルと連動させない。音声を切り替えるたびに
-  // マウスが動いて停止ボタンが出るのは邪魔なので、映像のクリックで出す
-  if(isTouch) showCenter();
+  // 中央ボタンはここでは出さない。シークバーなど操作バーを触っただけで
+  // 停止ボタンが出るのは邪魔なので、映像を触った / クリックしたときだけ出す
 }
 function hideChrome(){
   if(!canAutoHideChrome()) return;
   document.body.classList.add('chrome-hidden');
 }
-/* タップやボタンによる明示的な格納。アイドル判定を待たない */
+/* 明示的に隠したあと、マウスのわずかな震えで出し直さないための起点。
+   ここから SUPPRESS_PX 動かすまで mousemove では出さない */
+const SUPPRESS_PX = 40;
+let lastPointer = null;
+let suppressFrom = null;
+
+/* タップやクリック、ボタンによる明示的な格納。アイドル判定を待たない。
+   自動非表示が効かなくなったときの逃げ道も兼ねるので、
+   canAutoHideChrome() を通さずに必ず隠す */
 function hideChromeNow(){
   if(!document.getElementById('splash').classList.contains('gone')) return;
   // 先に畳む。toggleMore / toggleHelp は末尾で showChrome() を呼ぶので順序が重要
   toggleMore(false);
   toggleHelp(false);
+  // 入力欄にフォーカスが残っていると chromeInteractive() が真のままになり、
+  // 以後アイドルでは二度と畳まれなくなる。ここで外して復帰させる
+  const ae = document.activeElement;
+  if(ae && ae.tagName === 'INPUT') ae.blur();
+  reclaimFocus();
   clearTimeout(uiHideTimer);
   uiHideTimer = null;
+  suppressFrom = lastPointer && { x: lastPointer.x, y: lastPointer.y };
   document.body.classList.add('chrome-hidden');
-}
-function toggleChrome(){
-  if(document.body.classList.contains('chrome-hidden')) showChrome();
-  else if(autoHideEnabled()) hideChromeNow();
 }
 /* ================================================================
    動画中央の再生 / 一時停止ボタン
@@ -575,6 +605,7 @@ function centerVisible(){
          !document.body.classList.contains('chrome-hidden');
 }
 function showCenter(){
+  if(!isTouch) return;   // PC はカーソルが中央に来たとき（CSS の :hover）に出す
   document.body.classList.remove('center-hidden');
   clearTimeout(centerTimer);
   centerTimer = null;
