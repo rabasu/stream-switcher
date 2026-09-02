@@ -94,10 +94,18 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 #centerBtn .iconPlay{display:none;}
 body.paused #centerBtn .iconPause{display:none;}
 body.paused #centerBtn .iconPlay{display:block;}
-/* 横画面スマホは操作パネルと同時に、それ以外は時間経過で隠す。
-   PC は操作パネルと切り離す（マウスを動かすたびに出ると邪魔なため） */
+/* タッチは操作パネルと同時（横画面）か時間経過（縦画面）で隠す */
 body.touch.chrome-hidden #centerBtn,
-body.center-hidden #centerBtn{opacity:0;pointer-events:none;}
+body.touch.center-hidden #centerBtn{opacity:0;pointer-events:none;}
+
+/* PC はカーソルが動画中央に来たときだけ出す。押しやすいよう円を約2倍にし、
+   透明なあいだも受け付けるので、中央に入った瞬間から押せる */
+body:not(.touch) #centerBtn{
+  width:136px;height:136px;opacity:0;
+  background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
+}
+body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
+body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
 
 /* ===== 読み込み中 ===== */

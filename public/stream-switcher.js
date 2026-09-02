@@ -476,9 +476,11 @@ function reclaimFocus(){
 }
 /* マウスは iframe へのフォーカス移動を止めるだけ。タッチはタップで操作パネルを開閉する */
 /* PC は映像のどこをクリックしても再生 / 停止（YouTube などと同じ） */
-document.getElementById('shield').addEventListener('click', () => {
+document.getElementById('shield').addEventListener('click', e => {
   if(isTouch) return;   // タッチは画面を触って中央ボタンを出す方式
-  togglePlay();
+  // 中央ボタン以外の映像上をクリックしたら上下のUIを隠す
+  lastPointer = { x: e.clientX, y: e.clientY };
+  hideChromeNow();
 });
 document.getElementById('shield').addEventListener('pointerdown', e => {
   if(e.pointerType === 'mouse'){ e.preventDefault(); reclaimFocus(); return; }
@@ -491,8 +493,23 @@ document.getElementById('shield').addEventListener('pointerdown', e => {
 });
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
-document.addEventListener('mousemove', () => { reclaimFocus(); if(!isTouch) showChrome(); }, {passive:true});
-document.addEventListener('pointerdown', e => { if(e.pointerType !== 'touch') showChrome(); }, {passive:true});
+document.addEventListener('mousemove', e => {
+  lastPointer = { x: e.clientX, y: e.clientY };
+  reclaimFocus();
+  if(isTouch) return;
+  if(suppressFrom){
+    if(Math.hypot(e.clientX - suppressFrom.x, e.clientY - suppressFrom.y) < SUPPRESS_PX) return;
+    suppressFrom = null;
+  }
+  showChrome();
+}, {passive:true});
+document.addEventListener('pointerdown', e => {
+  if(e.pointerType === 'touch') return;
+  // 映像のクリックは隠す側なので、押した時点で出さない
+  if(e.target.id === 'shield') return;
+  suppressFrom = null;
+  showChrome();
+}, {passive:true});
 /* ショートカットキーではメニューを出さない（マウス操作時のみ再表示） */
 if(isTouch){
   // タッチには hover が無い。パネルを触るたびに自動非表示までの時間を延長する
@@ -548,14 +565,28 @@ function hideChrome(){
   if(!canAutoHideChrome()) return;
   document.body.classList.add('chrome-hidden');
 }
-/* タップやボタンによる明示的な格納。アイドル判定を待たない */
+/* 明示的に隠したあと、マウスのわずかな震えで出し直さないための起点。
+   ここから SUPPRESS_PX 動かすまで mousemove では出さない */
+const SUPPRESS_PX = 40;
+let lastPointer = null;
+let suppressFrom = null;
+
+/* タップやクリック、ボタンによる明示的な格納。アイドル判定を待たない。
+   自動非表示が効かなくなったときの逃げ道も兼ねるので、
+   canAutoHideChrome() を通さずに必ず隠す */
 function hideChromeNow(){
   if(!document.getElementById('splash').classList.contains('gone')) return;
   // 先に畳む。toggleMore / toggleHelp は末尾で showChrome() を呼ぶので順序が重要
   toggleMore(false);
   toggleHelp(false);
+  // 入力欄にフォーカスが残っていると chromeInteractive() が真のままになり、
+  // 以後アイドルでは二度と畳まれなくなる。ここで外して復帰させる
+  const ae = document.activeElement;
+  if(ae && ae.tagName === 'INPUT') ae.blur();
+  reclaimFocus();
   clearTimeout(uiHideTimer);
   uiHideTimer = null;
+  suppressFrom = lastPointer && { x: lastPointer.x, y: lastPointer.y };
   document.body.classList.add('chrome-hidden');
 }
 /* ================================================================
@@ -574,6 +605,7 @@ function centerVisible(){
          !document.body.classList.contains('chrome-hidden');
 }
 function showCenter(){
+  if(!isTouch) return;   // PC はカーソルが中央に来たとき（CSS の :hover）に出す
   document.body.classList.remove('center-hidden');
   clearTimeout(centerTimer);
   centerTimer = null;
