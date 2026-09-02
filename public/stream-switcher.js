@@ -122,6 +122,8 @@ function build(ids){
       videoId: ids[k],
       playerVars:{
         rel:0, playsinline:1, controls:0, disablekb:1,
+        fs:0,                            // プレーヤー側の全画面ボタンを出さない
+        iv_load_policy:3,                // アノテーション / カードを出さない
         autoplay:1,
         mute:1,
         origin: location.origin          // エラー153対策
@@ -483,7 +485,9 @@ document.getElementById('shield').addEventListener('pointerdown', e => {
   if(!centerVisible()) swallowCenterClick = true;
   // 縦画面は操作パネルが出たままなので、中央ボタンだけ出し直す
   if(!autoHideEnabled()){ showCenter(); return; }
-  toggleChrome();
+  // 横画面は操作パネルごと出し入れする。中央ボタンは映像を触ったここでだけ出す
+  if(document.body.classList.contains('chrome-hidden')){ showChrome(); showCenter(); }
+  else hideChromeNow();
 });
 window.addEventListener('focus', () => setTimeout(reclaimFocus, 0));
 document.addEventListener('visibilitychange', () => { if(!document.hidden) setTimeout(reclaimFocus, 0); });
@@ -537,9 +541,8 @@ function canAutoHideChrome(){
 function showChrome(){
   document.body.classList.remove('chrome-hidden');
   scheduleHideChrome();
-  // PC の中央ボタンは操作パネルと連動させない。音声を切り替えるたびに
-  // マウスが動いて停止ボタンが出るのは邪魔なので、映像のクリックで出す
-  if(isTouch) showCenter();
+  // 中央ボタンはここでは出さない。シークバーなど操作バーを触っただけで
+  // 停止ボタンが出るのは邪魔なので、映像を触った / クリックしたときだけ出す
 }
 function hideChrome(){
   if(!canAutoHideChrome()) return;
@@ -554,10 +557,6 @@ function hideChromeNow(){
   clearTimeout(uiHideTimer);
   uiHideTimer = null;
   document.body.classList.add('chrome-hidden');
-}
-function toggleChrome(){
-  if(document.body.classList.contains('chrome-hidden')) showChrome();
-  else if(autoHideEnabled()) hideChromeNow();
 }
 /* ================================================================
    動画中央の再生 / 一時停止ボタン

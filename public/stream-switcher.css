@@ -16,7 +16,7 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 /* ===== ステージ ===== */
 #stage{position:fixed;inset:0;background:#000;}
 .layer{position:absolute;inset:0;}
-.layer iframe{width:100%;height:100%;border:0;display:block;}
+.layer iframe{width:100%;height:100%;border:0;display:block;pointer-events:none;}
 .layer.front{z-index:3;}
 .layer.back{z-index:1;}
 /* 省帯域: 背面は最小サイズまで縮小し低解像度で受信させる（下限200x200px） */
