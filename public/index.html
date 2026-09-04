@@ -163,7 +163,7 @@
     <div class="barTail" id="audioTail">
       <button class="pill" data-aud="both" data-k="both">同時<kbd>R</kbd></button>
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
-      <button id="swap">A ⇄ B<small>SPACE</small></button>
+      <button id="swap" title="VC-A ⇄ VC-B の音声を切り替える (Space)">A ⇄ B<small>SPACE</small></button>
       <div class="row" id="volWrap">
         <button type="button" id="volMute" title="ミュート (M)" aria-label="ミュート">
           <svg class="iconVolOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
@@ -206,7 +206,8 @@
     <div class="group">
       <span>設定</span>
       <div class="row">
-        <button class="pill on" id="eco" data-k="both">省帯域<kbd>V</kbd></button>
+        <button class="pill" id="linkVideo" data-k="both" aria-pressed="false" title="Space（A ⇄ B）で映像も一緒に切り替える">映像も切替<kbd>S</kbd></button>
+        <button class="pill on" id="eco" data-k="both" title="省帯域モード ON (V)">省帯域<kbd>V</kbd></button>
         <button class="pill" id="diagbtn" data-k="both">診断<kbd>D</kbd></button>
         <button class="pill" id="helpbtn2">ヘルプ<kbd>?</kbd></button>
       </div>
@@ -221,7 +222,8 @@
     <h3 class="kbOnly">キーボードショートカット</h3>
     <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
-      <tr><td>Space</td><td>VC-A と VC-B の音声を交互に切り替える（映像は動きません）。MAIN やミュートのときは VC-A に入ります</td></tr>
+      <tr><td>Space</td><td>VC-A と VC-B の音声を交互に切り替える。MAIN やミュートのときは VC-A に入ります。既定では映像は動きません（<b>S</b> で映像も動かせます）</td></tr>
+      <tr><td>S</td><td>Space で映像も一緒に切り替える連動モードのオン / オフ。連動中は往復のたびに画質が落ちないよう、省帯域モードを自動で一時解除します</td></tr>
       <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
       <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
@@ -236,7 +238,7 @@
       <tr><th colspan="2">画面と調整</th></tr>
       <tr><td>R</td><td>VC-A と VC-B を同時に流す</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
-      <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します</td></tr>
+      <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します。Space の連動切替で往復している間は自動で一時解除し、切替直後の画質低下を避けます</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
       <tr><td>?</td><td>このヘルプ</td></tr>
     </table>

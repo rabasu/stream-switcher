@@ -170,6 +170,8 @@ body:not(.touch) .touchOnly{display:none;}
    ================================================================ */
 /* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
 body.touch #swap,
+/* その A⇄B（Space）に対する設定なので、A⇄B を出さないなら一緒に不要 */
+body.touch #linkVideo,
 body.touch [data-aud="both"],
 /* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
 body.touch #volWrap,
@@ -307,6 +309,8 @@ body.chrome-hidden #diag{
 .pill.on[data-k="b"]{background:var(--b);border-color:var(--b);}
 .pill.on[data-k="none"]{background:var(--live);border-color:var(--live);color:#fff;}
 .pill.on[data-k="both"]{background:var(--ok);border-color:var(--ok);}
+/* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
+.pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
 #swap{
   background:#fff;color:#04060a;border:none;border-radius:8px;
