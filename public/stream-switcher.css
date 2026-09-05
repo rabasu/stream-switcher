@@ -170,7 +170,7 @@ body:not(.touch) .touchOnly{display:none;}
    ================================================================ */
 /* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
 body.touch #swap,
-/* その A⇄B（Space）に対する設定なので、A⇄B を出さないなら一緒に不要 */
+/* A⇄B（Space）の切替対象を選ぶトグル。A⇄B が無ければ一緒に不要 */
 body.touch #linkVideo,
 body.touch [data-aud="both"],
 /* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
@@ -532,6 +532,8 @@ body.chrome-hidden #diag{
   #golive{padding:8px 10px;gap:5px;}
   #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
   #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
+  /* #audioTail > .pill の 40% を上書きするので、同じ詳細度で当てる */
+  #audioTail > #linkVideo{order:1;flex:0 1 auto;}
   #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
   #volWrap{flex:1 1 100%;order:3;}
   #vol{flex:1 1 auto;width:auto;}

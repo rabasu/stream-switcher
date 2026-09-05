@@ -5,7 +5,7 @@ let ready = {main:false, a:false, b:false};
 let videoSrc = 'main';
 let audioSrc = 'main';
 var ecoMode = true;
-var linkVideo = false;            // Space で音声と一緒に映像も切り替えるか
+var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
 var diagOn = false;
 
 /* ================================================================
@@ -249,22 +249,28 @@ function toggleEco(){
 }
 
 /* ================================================================
-   Space連動
-   映像と音声を別々に切り替えるのがこのツールの基本なので、Space は
-   既定では音声だけを動かす。1つのキーで画面ごと入れ替えたいという
-   配信者向けに、映像も一緒に動かすモードを用意する。
+   Space（A ⇄ B）の切替対象
+   既定は映像と音声をまとめて切り替える。映像は据え置きで音声だけ
+   行き来したい場面もあるので、A ⇄ B の右のトグルで対象を選べる。
+   1/2/3 と Q/W/E は元から別々なので、この設定の影響を受けない。
    ================================================================ */
-function toggleLinkVideo(){
-  linkVideo = !linkVideo;
+function renderLinkVideo(){
   const btn = document.getElementById('linkVideo');
   btn.classList.toggle('on', linkVideo);
-  btn.setAttribute('aria-pressed', linkVideo ? 'true' : 'false');
-  document.getElementById('swap').title = linkVideo
-    ? 'VC-A ⇄ VC-B を映像と音声まとめて切り替える (Space)'
-    : 'VC-A ⇄ VC-B の音声を切り替える (Space)';
+  document.getElementById('linkVideoLabel').textContent = linkVideo ? '音声&映像' : '音声のみ';
+  btn.setAttribute('aria-label', linkVideo
+    ? 'Space の切替対象は音声と映像。押すと音声のみになります'
+    : 'Space の切替対象は音声のみ。押すと映像も一緒に切り替わります');
+  btn.title = (linkVideo
+    ? 'Space で映像と音声をまとめて切り替える'
+    : 'Space で音声だけを切り替える（映像は据え置き）') + ' (S)';
+}
+function toggleLinkVideo(){
+  linkVideo = !linkVideo;
+  renderLinkVideo();
   setStatusLine(linkVideo
-    ? 'Space連動 ON — 映像と音声を一緒に切り替えます（往復中は省帯域を一時解除）'
-    : 'Space連動 OFF — Space は音声だけを切り替えます');
+    ? 'Space の切替対象: 音声 + 映像（往復中は省帯域を一時解除します）'
+    : 'Space の切替対象: 音声のみ — 映像は据え置きです');
 }
 
 /* ---------- 音声 ---------- */
@@ -534,7 +540,7 @@ function renderDiag(){
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
-    'Space連動   ' + (linkVideo ? 'ON' : 'OFF')
+    'Space対象   ' + (linkVideo ? '音声+映像' : '音声のみ')
   );
 }
 function toggleDiag(){
@@ -871,6 +877,7 @@ document.getElementById('vol').addEventListener('input', function(){
 document.getElementById('volMute').addEventListener('click', toggleMute);
 setVolume(100);
 renderEco();
+renderLinkVideo();
 
 const scrubEl = document.getElementById('scrub');
 scrubEl.addEventListener('input', () => { scrubbing = true; renderTransport(); });
