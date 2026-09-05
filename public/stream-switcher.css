@@ -312,6 +312,33 @@ body.chrome-hidden #diag{
 /* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
 .pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
+/* ===== Space（A ⇄ B）の切替対象トグル =====
+   A ⇄ B に対するオプションでしかないので、ピルにすると主張が強すぎて
+   かえって「Space の設定」だと読み取りにくい。枠も塗りも持たせず、
+   現在の対象を示す小さな文字と、その下のスイッチだけにする。
+   ラベルは 音声 / 音声&映像 で幅が変わるので、長い方で幅を固定して
+   切り替えても隣のボタンが動かないようにする。 */
+#linkVideo{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  background:none;border:0;padding:2px 4px;min-width:62px;cursor:pointer;
+  font:inherit;font-size:.62rem;font-weight:700;letter-spacing:.02em;line-height:1;
+  color:var(--sub);transition:color .12s;flex-shrink:0;
+}
+#linkVideo:hover{color:var(--text);}
+/* 枠を持たない要素なので、UA 既定のリングは大きな箱に見えてしまう */
+#linkVideo:focus-visible{outline:2px solid var(--a);outline-offset:1px;border-radius:6px;}
+#linkVideoLabel{white-space:nowrap;}
+.switchTrack{
+  position:relative;display:block;width:30px;height:14px;border-radius:999px;
+  background:#2b3340;transition:background .12s;
+}
+.switchKnob{
+  position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
+  background:var(--sub);transition:transform .12s,background .12s;
+}
+#linkVideo[aria-checked="true"] .switchTrack{background:var(--ok);}
+#linkVideo[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
+
 #swap{
   background:#fff;color:#04060a;border:none;border-radius:8px;
   min-width:148px;padding:10px 22px;font-size:.95rem;font-weight:800;cursor:pointer;letter-spacing:.02em;
@@ -532,8 +559,8 @@ body.chrome-hidden #diag{
   #golive{padding:8px 10px;gap:5px;}
   #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
   #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
-  /* #audioTail > .pill の 40% を上書きするので、同じ詳細度で当てる */
-  #audioTail > #linkVideo{order:1;flex:0 1 auto;}
+  /* 折り返しても A ⇄ B の隣に居させる（#swap と同じ order） */
+  #linkVideo{order:1;}
   #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
   #volWrap{flex:1 1 100%;order:3;}
   #vol{flex:1 1 auto;width:auto;}

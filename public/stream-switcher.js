@@ -256,11 +256,8 @@ function toggleEco(){
    ================================================================ */
 function renderLinkVideo(){
   const btn = document.getElementById('linkVideo');
-  btn.classList.toggle('on', linkVideo);
-  document.getElementById('linkVideoLabel').textContent = linkVideo ? '音声&映像' : '音声のみ';
-  btn.setAttribute('aria-label', linkVideo
-    ? 'Space の切替対象は音声と映像。押すと音声のみになります'
-    : 'Space の切替対象は音声のみ。押すと映像も一緒に切り替わります');
+  btn.setAttribute('aria-checked', linkVideo ? 'true' : 'false');
+  document.getElementById('linkVideoLabel').textContent = linkVideo ? '音声&映像' : '音声';
   btn.title = (linkVideo
     ? 'Space で映像と音声をまとめて切り替える'
     : 'Space で音声だけを切り替える（映像は据え置き）') + ' (S)';
