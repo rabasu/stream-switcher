@@ -244,9 +244,8 @@ body.setupInCard #setupSlot{margin-top:22px;}
 #splash:not(.gone) ~ #bottomChrome > #bar,
 #splash:not(.gone) ~ #bottomChrome > #fsBtn,
 #splash:not(.gone) ~ #bottomChrome > #chromeBtn{display:none;}
-/* 導入画面では操作の案内は意味がなく、カード下端に重なるので出さない。
-   エラー（.alert）だけは読めるように背景を敷いて残す */
-#splash:not(.gone) ~ #bottomChrome > #hint:not(.alert){display:none;}
+/* 導入画面ではカードの下端に重なるので、エラー（.alert）は
+   読めるように背景を敷く */
 #splash:not(.gone) ~ #bottomChrome > #hint.alert{
   background:rgba(7,9,12,.94);
   padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
@@ -519,13 +518,14 @@ body.chrome-hidden #diag{
 #help .contact a{color:var(--a);text-decoration:none;font-weight:700;}
 #help .contact a:hover{text-decoration:underline;}
 
-/* 操作バーの直上。以前は fixed bottom:0 で #bar の背景に隠れ、エラー文が読めなかった */
+/* エラーのときだけ出る行。常設のガイドは映像にかぶるので置かない。
+   操作バーの直上に流し込む（fixed bottom:0 だと #bar の背景に隠れる）。
+   .alert は導入画面で出すかどうかの判定に使う */
 #hint{
   position:relative;z-index:1;text-align:center;
-  padding:0 12px 6px;font-size:.7rem;color:#8b93a2;pointer-events:none;
+  padding:0 12px 6px;font-size:.7rem;color:var(--live);pointer-events:none;
   text-shadow:0 1px 4px rgba(0,0,0,.9);
 }
-#hint.alert{color:var(--live);}
 #hint:empty{display:none;}
 
 

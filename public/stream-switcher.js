@@ -25,25 +25,20 @@ if(isTouch) document.body.classList.add('touch');
 if(isIOS) document.body.classList.add('noVol');
 if(!fsSupported()) document.body.classList.add('noFs');
 
-/* ---------- ステータス表示 ---------- */
-/* タッチ端末では常時空。この行はエラー表示専用として使う */
-function hintDefault(){
-  if(isTouch) return '';
-  return (linkVideo ? 'Space:映像+音声切替' : 'Space:音声切替') +
-         '　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
-}
+/* ---------- ステータス表示 ----------
+   映像にかぶるので常設のガイドは置かない。エラーのときだけ出して、
+   数秒で消す（操作の結果はボタンやスイッチの見た目が示す）。
+   ショートカットの一覧はヘルプ（?）にある。 */
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
   el.classList.add('alert');   // 導入画面では .alert のときだけ表示する
   clearTimeout(setStatusLine._t);
   setStatusLine._t = setTimeout(() => {
-    el.textContent = hintDefault();
+    el.textContent = '';
     el.classList.remove('alert');
   }, 6000);
 }
-
-document.getElementById('hint').textContent = hintDefault();
 
 /* ---------- 動画ID抽出 ---------- */
 function extractId(s){
@@ -243,9 +238,6 @@ function toggleEco(){
   ecoSuspended = false;
   applyEcoLayers();
   renderEco();
-  setStatusLine(ecoMode
-    ? '省帯域モード ON — 背面を低解像度で受信し、前面に帯域を回します'
-    : '省帯域モード OFF — 全本を全解像度で受信します（切替時の画質低下なし）');
 }
 
 /* ================================================================
@@ -265,9 +257,6 @@ function renderLinkVideo(){
 function toggleLinkVideo(){
   linkVideo = !linkVideo;
   renderLinkVideo();
-  setStatusLine(linkVideo
-    ? 'Space の切替対象: 音声 + 映像（往復中は省帯域を一時解除します）'
-    : 'Space の切替対象: 音声のみ — 映像は据え置きです');
 }
 
 /* ---------- 音声 ---------- */
