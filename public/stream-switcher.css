@@ -1,6 +1,11 @@
 :root{
   /* #setup の実測高さ。JS が更新する。スマホでは入力欄が縦積みになり大きく変わる */
   --setupH:96px;
+  /* #bar の左右パディング。下段の中央寄せがこの値を基準にする */
+  --barPadX:18px;
+  /* A ⇄ B と切替対象スイッチの幅。中央からのオフセット計算にも使う */
+  --swapW:200px;
+  --switchW:62px;
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
   --a:#4ea8de; --b:#f2a65a; --main:#8b9aa8; --live:#e5484d; --ok:#7bc47f;
@@ -132,7 +137,7 @@ body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #bar{
   position:relative;
   background:linear-gradient(to top,rgba(7,9,12,.97),rgba(7,9,12,.8) 78%,transparent);
-  padding:24px 18px 12px;display:flex;flex-direction:column;gap:12px;
+  padding:24px var(--barPadX) 12px;display:flex;flex-direction:column;gap:12px;
 }
 
 /* 操作バー直上・映像にわずかにかぶる全画面ボタン（YouTube風） */
@@ -320,7 +325,7 @@ body.chrome-hidden #diag{
    切り替えても隣のボタンが動かないようにする。 */
 #linkVideo{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
-  background:none;border:0;padding:2px 4px;min-width:62px;cursor:pointer;
+  background:none;border:0;padding:2px 4px;min-width:var(--switchW);cursor:pointer;
   font:inherit;font-size:.62rem;font-weight:700;letter-spacing:.02em;line-height:1;
   color:var(--sub);transition:color .12s;flex-shrink:0;
 }
@@ -339,14 +344,51 @@ body.chrome-hidden #diag{
 #linkVideo[aria-checked="true"] .switchTrack{background:var(--ok);}
 #linkVideo[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
 
+/* 高さは MAIN / VC-A / VC-B のボタンに揃える。SPACE の添え字は行を
+   増やさないよう、ピルの <kbd> と同じように後ろへ並べる */
 #swap{
   background:#fff;color:#04060a;border:none;border-radius:8px;
-  min-width:148px;padding:10px 22px;font-size:.95rem;font-weight:800;cursor:pointer;letter-spacing:.02em;
+  min-width:var(--swapW);padding:8px 22px;font-size:.95rem;font-weight:800;
+  cursor:pointer;letter-spacing:.02em;
   box-shadow:0 0 0 1px rgba(255,255,255,.15),0 4px 16px rgba(0,0,0,.4);
-  line-height:1.15;flex-shrink:0;
+  line-height:1.1;flex-shrink:0;
 }
-#swap:active{transform:translateY(1px);}
-#swap small{display:block;font-size:.58rem;font-weight:600;opacity:.55;letter-spacing:.1em;margin-top:2px;}
+#swap:active{filter:brightness(.92);}
+#swap small{font-size:.6rem;font-weight:700;opacity:.5;letter-spacing:.1em;margin-left:9px;}
+
+/* ================================================================
+   下段の中央寄せ
+   MAIN / VC-A / VC-B は上段と列を揃えるためグリッドに固定なので、
+   そこから右に続くものは左詰めになり、広い画面ほど右が空いて偏る。
+   そこで A ⇄ B を画面の中央に絶対配置し、その右に切替対象のスイッチ、
+   さらに離して音量を置く。#audioTail の右端は #bar の内側の右端
+   （= 画面右端 − --barPadX）なので、右端からの距離だけで画面中央を
+   指せる。translateX(50%) と組み合わせると right の値がそのまま
+   「要素の中心をどこに置くか」になる。
+   幅が足りないと左の「同時」や右の「その他」に重なるので、
+   両側に余裕のある画面にだけ適用する（下限は実測で 1062px 前後）。
+   ================================================================ */
+@media (min-width:1100px){
+  #audioTail{position:relative;}
+  #swap,#linkVideo,#volWrap{position:absolute;top:50%;}
+  /* A ⇄ B の中心を画面中央に。横向きスマホ用の min-width が後ろにあり、
+     幅が変わると右隣のスイッチと重なるので詳細度を上げて押さえる */
+  #audioTail > #swap{
+    right:calc(50vw - var(--barPadX));transform:translate(50%,-50%);
+    min-width:var(--swapW);
+  }
+  /* その右隣。A ⇄ B の右端から 10px 空ける */
+  #linkVideo{
+    right:calc(50vw - var(--barPadX) - var(--swapW)/2 - 10px - var(--switchW)/2);
+    transform:translate(50%,-50%);
+  }
+  /* 音量は表示値（0〜100）で幅が変わるので、中心ではなく左端を固定する。
+     translateX(100%) で right の値が「左端をどこに置くか」になる */
+  #volWrap{
+    right:calc(50vw - var(--barPadX) - 210px);
+    transform:translate(100%,-50%);
+  }
+}
 
 #toggleMore .chev{
   display:inline-block;margin-left:2px;font-size:.75rem;opacity:.75;
