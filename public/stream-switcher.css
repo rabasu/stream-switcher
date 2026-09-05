@@ -110,6 +110,9 @@ body:not(.touch) #centerBtn{
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
 body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
+/* 止めているあいだは出しておく。ホバーしないと出ないままだと、
+   止まっていることも戻し方も分からない */
+body:not(.touch).paused #centerBtn{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
 
@@ -400,6 +403,20 @@ body.chrome-hidden #diag{
 
 /* ===== タイムライン ===== */
 #timeline{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;}
+/* 再生 / 一時停止。映像の中央ボタンはカーソルを載せるまで出ないので、
+   常に見えるここが主な止め方になる。位置はシークバーの左（YouTube 等と同じ）*/
+#playBtn{
+  flex-shrink:0;width:34px;height:34px;padding:0;cursor:pointer;
+  border:1px solid var(--line);border-radius:8px;
+  background:rgba(255,255,255,.05);color:var(--text);
+  display:flex;align-items:center;justify-content:center;transition:.12s;
+}
+#playBtn:hover{border-color:var(--sub);background:rgba(255,255,255,.1);}
+/* UA 既定のリングは枠の外にもう一段の箱ができて見えるので当て直す */
+#playBtn:focus-visible{outline:2px solid var(--a);outline-offset:1px;}
+#playBtn .iconPlay{display:none;}
+body.paused #playBtn .iconPause{display:none;}
+body.paused #playBtn .iconPlay{display:block;}
 #timeline input[type=range]{
   flex:1 1 120px;min-width:80px;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;
   background:#2b3340;outline:none;cursor:pointer;

@@ -150,6 +150,10 @@
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
     <div class="barTail" id="videoTail">
       <div id="timeline">
+        <button type="button" id="playBtn" title="一時停止 (K)" aria-label="一時停止">
+          <svg class="iconPause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+          <svg class="iconPlay" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+        </button>
         <input type="range" id="scrub" min="0" max="600" value="600" step="1">
         <button class="pill live" id="golive" title="LIVEの最先端へ (L)">
           <span class="liveDot" aria-hidden="true"></span><span id="offsetLabel">LIVE</span><kbd>L</kbd>
@@ -232,7 +236,7 @@
       <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
-      <tr><td>K</td><td>3本まとめて一時停止 / 再開。映像のクリックでも同じです</td></tr>
+      <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像の中央に出るボタンでも同じです</td></tr>
       <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）</td></tr>
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
 
@@ -247,6 +251,7 @@
     <table class="touchOnly">
       <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです</td></tr>
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます</td></tr>
+      <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>
       <tr><td>通信量</td><td>配信を3本まで同時に受信します。モバイル回線ではご注意ください</td></tr>
     </table>

@@ -494,9 +494,12 @@ function renderTransport(){
     : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
   document.body.classList.toggle('paused', paused);
-  const cb = document.getElementById('centerBtn');
-  cb.title = paused ? '再生 (K)' : '一時停止 (K)';
-  cb.setAttribute('aria-label', paused ? '再生' : '一時停止');
+  const playLabel = paused ? '再生' : '一時停止';
+  ['centerBtn','playBtn'].forEach(id => {
+    const b = document.getElementById(id);
+    b.title = playLabel + ' (K)';
+    b.setAttribute('aria-label', playLabel);
+  });
 }
 setInterval(() => { if(Object.values(ready).some(Boolean)) renderTransport(); }, 300);
 
@@ -829,6 +832,7 @@ document.getElementById('golive').addEventListener('click', goLive);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('linkVideo').addEventListener('click', toggleLinkVideo);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
+document.getElementById('playBtn').addEventListener('click', togglePlay);
 document.getElementById('centerBtn').addEventListener('click', () => {
   if(swallowCenterClick) return;   // 出現させたタップでは押さない
   togglePlay();
