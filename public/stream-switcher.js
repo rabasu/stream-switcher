@@ -5,6 +5,7 @@ let ready = {main:false, a:false, b:false};
 let videoSrc = 'main';
 let audioSrc = 'main';
 var ecoMode = true;
+var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
 var diagOn = false;
 
 /* ================================================================
@@ -24,23 +25,20 @@ if(isTouch) document.body.classList.add('touch');
 if(isIOS) document.body.classList.add('noVol');
 if(!fsSupported()) document.body.classList.add('noFs');
 
-/* ---------- ステータス表示 ---------- */
-/* タッチ端末では常時空。この行はエラー表示専用として使う */
-function hintDefault(){
-  return isTouch ? '' : 'Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ';
-}
+/* ---------- ステータス表示 ----------
+   映像にかぶるので常設のガイドは置かない。エラーのときだけ出して、
+   数秒で消す（操作の結果はボタンやスイッチの見た目が示す）。
+   ショートカットの一覧はヘルプ（?）にある。 */
 function setStatusLine(msg){
   const el = document.getElementById('hint');
   el.textContent = msg;
   el.classList.add('alert');   // 導入画面では .alert のときだけ表示する
   clearTimeout(setStatusLine._t);
   setStatusLine._t = setTimeout(() => {
-    el.textContent = hintDefault();
+    el.textContent = '';
     el.classList.remove('alert');
   }, 6000);
 }
-
-document.getElementById('hint').textContent = hintDefault();
 
 /* ---------- 動画ID抽出 ---------- */
 function extractId(s){
@@ -106,6 +104,7 @@ function build(ids){
   paused = false;
   targetOffset = 0;
   audioUnlocked = false;          // 再読み込み時は mute 再生で自動再生を通す
+  resumeEco();                    // 省帯域の一時解除は持ち越さない
   videoSrc = 'main';
   audioSrc = 'none';              // 起動はミュート。赤いミュートボタンで分かる
   KEYS.forEach(k => {
@@ -172,19 +171,92 @@ function setVideo(k){
     const isFront = (x === k);
     el.classList.toggle('front', isFront);
     el.classList.toggle('back', !isFront);
-    el.classList.toggle('eco', !isFront && ecoMode);
   });
+  applyEcoLayers();
+  // 一時解除中の切り替えは「まだ往復している」合図。戻すまでの時間を延ばす
+  if(ecoSuspended) armEcoResume();
   document.querySelectorAll('[data-vid]').forEach(b =>
     b.classList.toggle('on', b.dataset.vid === videoSrc));
 }
 
+/* ================================================================
+   省帯域モード
+   背面のレイヤーを 240x200 まで縮め、YouTube の ABR に低い解像度を
+   選ばせて帯域を前面に回す。裏は縮んだ状態で受信しているので、前面へ
+   出した直後は解像度が上がりきるまで数秒ぼやける。1回だけの切り替え
+   なら気にならないが、Space連動で VC-A ⇄ VC-B を往復されると毎回
+   見えてしまうので、往復している間だけ一時解除して裏も原寸で温める。
+   往復が止まって ECO_RESUME_MS 経ったら元の省帯域に戻す。
+   ================================================================ */
+const ECO_RESUME_MS = 90000;      // 省帯域へ戻すまでの無操作時間(ms)
+let ecoSuspended = false;
+let ecoResumeTimer = null;
+
+function ecoActive(){ return ecoMode && !ecoSuspended; }
+function applyEcoLayers(){
+  const on = ecoActive();
+  KEYS.forEach(x => document.getElementById('layer-'+x)
+    .classList.toggle('eco', x !== videoSrc && on));
+}
+function armEcoResume(){
+  clearTimeout(ecoResumeTimer);
+  ecoResumeTimer = setTimeout(resumeEco, ECO_RESUME_MS);
+}
+function suspendEco(){
+  if(!ecoMode) return;            // 省帯域を使っていないなら解除するものがない
+  if(!ecoSuspended){
+    ecoSuspended = true;
+    applyEcoLayers();
+    renderEco();
+  }
+  armEcoResume();
+}
+function resumeEco(){
+  clearTimeout(ecoResumeTimer);
+  ecoResumeTimer = null;
+  if(!ecoSuspended) return;
+  ecoSuspended = false;
+  applyEcoLayers();
+  renderEco();
+}
+/* ボタンは 塗り=省帯域が効いている / 枠線だけ=設定は ON だが一時解除中 */
+function renderEco(){
+  const btn = document.getElementById('eco');
+  btn.classList.toggle('on', ecoMode);
+  btn.classList.toggle('suspended', ecoMode && ecoSuspended);
+  btn.title = !ecoMode
+    ? '省帯域モード OFF (V)'
+    : (ecoSuspended
+        ? '省帯域モード ON — Space の連動切替中なので一時解除しています (V)'
+        : '省帯域モード ON (V)');
+}
 function toggleEco(){
   ecoMode = !ecoMode;
-  setVideo(videoSrc);
-  document.getElementById('eco').classList.toggle('on', ecoMode);
-  setStatusLine(ecoMode
-    ? '省帯域モード ON — 背面を低解像度で受信し、前面に帯域を回します'
-    : '省帯域モード OFF — 全本を全解像度で受信します（切替時の画質低下なし）');
+  // 手で切り替えたときは一時解除の状態を持ち越さない
+  clearTimeout(ecoResumeTimer);
+  ecoResumeTimer = null;
+  ecoSuspended = false;
+  applyEcoLayers();
+  renderEco();
+}
+
+/* ================================================================
+   Space（A ⇄ B）の切替対象
+   既定は映像と音声をまとめて切り替える。映像は据え置きで音声だけ
+   行き来したい場面もあるので、A ⇄ B の右のトグルで対象を選べる。
+   1/2/3 と Q/W/E は元から別々なので、この設定の影響を受けない。
+   ================================================================ */
+function renderLinkVideo(){
+  const btn = document.getElementById('linkVideo');
+  btn.setAttribute('aria-checked', linkVideo ? 'true' : 'false');
+  document.getElementById('linkVideoLabel').textContent = linkVideo ? '音声&映像' : '音声';
+  btn.title = (linkVideo
+    ? 'Space で映像と音声をまとめて切り替える'
+    : 'Space で音声だけを切り替える（映像は据え置き）') + ' (S)';
+}
+function toggleLinkVideo(){
+  linkVideo = !linkVideo;
+  renderLinkVideo();
 }
 
 /* ---------- 音声 ---------- */
@@ -274,10 +346,16 @@ function renderVolume(){
   btn.setAttribute('aria-label', m ? 'ミュート解除' : 'ミュート');
 }
 
-/* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る */
+/* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る。
+   Space連動が ON なら映像も同じ配信へ動かす */
 function swapVc(){
   audioUnlocked = true;
-  applyAudio(audioSrc === 'a' ? 'b' : 'a');
+  const next = audioSrc === 'a' ? 'b' : 'a';
+  if(linkVideo && players[next]){
+    suspendEco();                 // 往復で目立つ「切替直後の画質低下」を避ける
+    setVideo(next);
+  }
+  applyAudio(next);
 }
 
 /* 全体音量。鳴っているプレーヤーにのみ即時反映する */
@@ -416,9 +494,12 @@ function renderTransport(){
     : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
   document.body.classList.toggle('paused', paused);
-  const cb = document.getElementById('centerBtn');
-  cb.title = paused ? '再生 (K)' : '一時停止 (K)';
-  cb.setAttribute('aria-label', paused ? '再生' : '一時停止');
+  const playLabel = paused ? '再生' : '一時停止';
+  ['centerBtn','playBtn'].forEach(id => {
+    const b = document.getElementById(id);
+    b.title = playLabel + ' (K)';
+    b.setAttribute('aria-label', playLabel);
+  });
 }
 setInterval(() => { if(Object.values(ready).some(Boolean)) renderTransport(); }, 300);
 
@@ -447,7 +528,8 @@ function renderDiag(){
     '実効解像度  ', bold, ' px\n',
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
-    '省帯域      ' + (ecoMode ? 'ON' : 'OFF')
+    '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
+    'Space対象   ' + (linkVideo ? '音声+映像' : '音声のみ')
   );
 }
 function toggleDiag(){
@@ -748,7 +830,9 @@ document.getElementById('copylink').addEventListener('click', function(){
 document.getElementById('swap').addEventListener('click', swapVc);
 document.getElementById('golive').addEventListener('click', goLive);
 document.getElementById('eco').addEventListener('click', toggleEco);
+document.getElementById('linkVideo').addEventListener('click', toggleLinkVideo);
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
+document.getElementById('playBtn').addEventListener('click', togglePlay);
 document.getElementById('centerBtn').addEventListener('click', () => {
   if(swallowCenterClick) return;   // 出現させたタップでは押さない
   togglePlay();
@@ -782,6 +866,8 @@ document.getElementById('vol').addEventListener('input', function(){
 });
 document.getElementById('volMute').addEventListener('click', toggleMute);
 setVolume(100);
+renderEco();
+renderLinkVideo();
 
 const scrubEl = document.getElementById('scrub');
 scrubEl.addEventListener('input', () => { scrubbing = true; renderTransport(); });
@@ -813,7 +899,7 @@ window.addEventListener('keydown', e => {
     'e':()=>{ audioUnlocked = true; applyAudio('b'); },
     'r':()=>{ audioUnlocked = true; applyAudio('both'); },
     'm':toggleMute,
-    'k':togglePlay, 'l':goLive, 'v':toggleEco, 'd':toggleDiag,
+    'k':togglePlay, 'l':goLive, 's':toggleLinkVideo, 'v':toggleEco, 'd':toggleDiag,
     'f':toggleFs
   };
   const fn = map[e.key.toLowerCase()];

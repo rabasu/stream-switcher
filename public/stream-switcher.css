@@ -1,6 +1,11 @@
 :root{
   /* #setup の実測高さ。JS が更新する。スマホでは入力欄が縦積みになり大きく変わる */
   --setupH:96px;
+  /* #bar の左右パディング。下段の中央寄せがこの値を基準にする */
+  --barPadX:18px;
+  /* A ⇄ B と切替対象スイッチの幅。中央からのオフセット計算にも使う */
+  --swapW:200px;
+  --switchW:62px;
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
   --a:#4ea8de; --b:#f2a65a; --main:#8b9aa8; --live:#e5484d; --ok:#7bc47f;
@@ -105,6 +110,9 @@ body:not(.touch) #centerBtn{
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
 body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
+/* 止めているあいだは出しておく。ホバーしないと出ないままだと、
+   止まっていることも戻し方も分からない */
+body:not(.touch).paused #centerBtn{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
 
@@ -132,7 +140,7 @@ body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #bar{
   position:relative;
   background:linear-gradient(to top,rgba(7,9,12,.97),rgba(7,9,12,.8) 78%,transparent);
-  padding:24px 18px 12px;display:flex;flex-direction:column;gap:12px;
+  padding:24px var(--barPadX) 12px;display:flex;flex-direction:column;gap:12px;
 }
 
 /* 操作バー直上・映像にわずかにかぶる全画面ボタン（YouTube風） */
@@ -170,6 +178,8 @@ body:not(.touch) .touchOnly{display:none;}
    ================================================================ */
 /* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
 body.touch #swap,
+/* A⇄B（Space）の切替対象を選ぶトグル。A⇄B が無ければ一緒に不要 */
+body.touch #linkVideo,
 body.touch [data-aud="both"],
 /* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
 body.touch #volWrap,
@@ -237,9 +247,8 @@ body.setupInCard #setupSlot{margin-top:22px;}
 #splash:not(.gone) ~ #bottomChrome > #bar,
 #splash:not(.gone) ~ #bottomChrome > #fsBtn,
 #splash:not(.gone) ~ #bottomChrome > #chromeBtn{display:none;}
-/* 導入画面では操作の案内は意味がなく、カード下端に重なるので出さない。
-   エラー（.alert）だけは読めるように背景を敷いて残す */
-#splash:not(.gone) ~ #bottomChrome > #hint:not(.alert){display:none;}
+/* 導入画面ではカードの下端に重なるので、エラー（.alert）は
+   読めるように背景を敷く */
 #splash:not(.gone) ~ #bottomChrome > #hint.alert{
   background:rgba(7,9,12,.94);
   padding:10px 12px calc(10px + env(safe-area-inset-bottom,0px));
@@ -307,15 +316,81 @@ body.chrome-hidden #diag{
 .pill.on[data-k="b"]{background:var(--b);border-color:var(--b);}
 .pill.on[data-k="none"]{background:var(--live);border-color:var(--live);color:#fff;}
 .pill.on[data-k="both"]{background:var(--ok);border-color:var(--ok);}
+/* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
+.pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
+/* ===== Space（A ⇄ B）の切替対象トグル =====
+   A ⇄ B に対するオプションでしかないので、ピルにすると主張が強すぎて
+   かえって「Space の設定」だと読み取りにくい。枠も塗りも持たせず、
+   現在の対象を示す小さな文字と、その下のスイッチだけにする。
+   ラベルは 音声 / 音声&映像 で幅が変わるので、長い方で幅を固定して
+   切り替えても隣のボタンが動かないようにする。 */
+#linkVideo{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  background:none;border:0;padding:2px 4px;min-width:var(--switchW);cursor:pointer;
+  font:inherit;font-size:.62rem;font-weight:700;letter-spacing:.02em;line-height:1;
+  color:var(--sub);transition:color .12s;flex-shrink:0;
+}
+#linkVideo:hover{color:var(--text);}
+/* 枠を持たない要素なので、UA 既定のリングは大きな箱に見えてしまう */
+#linkVideo:focus-visible{outline:2px solid var(--a);outline-offset:1px;border-radius:6px;}
+#linkVideoLabel{white-space:nowrap;}
+.switchTrack{
+  position:relative;display:block;width:30px;height:14px;border-radius:999px;
+  background:#2b3340;transition:background .12s;
+}
+.switchKnob{
+  position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
+  background:var(--sub);transition:transform .12s,background .12s;
+}
+#linkVideo[aria-checked="true"] .switchTrack{background:var(--ok);}
+#linkVideo[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
+
+/* 高さは MAIN / VC-A / VC-B のボタンに揃える。SPACE の添え字は行を
+   増やさないよう、ピルの <kbd> と同じように後ろへ並べる */
 #swap{
   background:#fff;color:#04060a;border:none;border-radius:8px;
-  min-width:148px;padding:10px 22px;font-size:.95rem;font-weight:800;cursor:pointer;letter-spacing:.02em;
+  min-width:var(--swapW);padding:8px 22px;font-size:.95rem;font-weight:800;
+  cursor:pointer;letter-spacing:.02em;
   box-shadow:0 0 0 1px rgba(255,255,255,.15),0 4px 16px rgba(0,0,0,.4);
-  line-height:1.15;flex-shrink:0;
+  line-height:1.1;flex-shrink:0;
 }
-#swap:active{transform:translateY(1px);}
-#swap small{display:block;font-size:.58rem;font-weight:600;opacity:.55;letter-spacing:.1em;margin-top:2px;}
+#swap:active{filter:brightness(.92);}
+#swap small{font-size:.6rem;font-weight:700;opacity:.5;letter-spacing:.1em;margin-left:9px;}
+
+/* ================================================================
+   下段の中央寄せ
+   MAIN / VC-A / VC-B は上段と列を揃えるためグリッドに固定なので、
+   そこから右に続くものは左詰めになり、広い画面ほど右が空いて偏る。
+   そこで A ⇄ B を画面の中央に絶対配置し、その右に切替対象のスイッチ、
+   さらに離して音量を置く。#audioTail の右端は #bar の内側の右端
+   （= 画面右端 − --barPadX）なので、右端からの距離だけで画面中央を
+   指せる。translateX(50%) と組み合わせると right の値がそのまま
+   「要素の中心をどこに置くか」になる。
+   幅が足りないと左の「同時」や右の「その他」に重なるので、
+   両側に余裕のある画面にだけ適用する（下限は実測で 1062px 前後）。
+   ================================================================ */
+@media (min-width:1100px){
+  #audioTail{position:relative;}
+  #swap,#linkVideo,#volWrap{position:absolute;top:50%;}
+  /* A ⇄ B の中心を画面中央に。横向きスマホ用の min-width が後ろにあり、
+     幅が変わると右隣のスイッチと重なるので詳細度を上げて押さえる */
+  #audioTail > #swap{
+    right:calc(50vw - var(--barPadX));transform:translate(50%,-50%);
+    min-width:var(--swapW);
+  }
+  /* その右隣。A ⇄ B の右端から 10px 空ける */
+  #linkVideo{
+    right:calc(50vw - var(--barPadX) - var(--swapW)/2 - 10px - var(--switchW)/2);
+    transform:translate(50%,-50%);
+  }
+  /* 音量は表示値（0〜100）で幅が変わるので、中心ではなく左端を固定する。
+     translateX(100%) で right の値が「左端をどこに置くか」になる */
+  #volWrap{
+    right:calc(50vw - var(--barPadX) - 210px);
+    transform:translate(100%,-50%);
+  }
+}
 
 #toggleMore .chev{
   display:inline-block;margin-left:2px;font-size:.75rem;opacity:.75;
@@ -328,6 +403,20 @@ body.chrome-hidden #diag{
 
 /* ===== タイムライン ===== */
 #timeline{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;}
+/* 再生 / 一時停止。映像の中央ボタンはカーソルを載せるまで出ないので、
+   常に見えるここが主な止め方になる。位置はシークバーの左（YouTube 等と同じ）*/
+#playBtn{
+  flex-shrink:0;width:34px;height:34px;padding:0;cursor:pointer;
+  border:1px solid var(--line);border-radius:8px;
+  background:rgba(255,255,255,.05);color:var(--text);
+  display:flex;align-items:center;justify-content:center;transition:.12s;
+}
+#playBtn:hover{border-color:var(--sub);background:rgba(255,255,255,.1);}
+/* UA 既定のリングは枠の外にもう一段の箱ができて見えるので当て直す */
+#playBtn:focus-visible{outline:2px solid var(--a);outline-offset:1px;}
+#playBtn .iconPlay{display:none;}
+body.paused #playBtn .iconPause{display:none;}
+body.paused #playBtn .iconPlay{display:block;}
 #timeline input[type=range]{
   flex:1 1 120px;min-width:80px;-webkit-appearance:none;appearance:none;height:5px;border-radius:3px;
   background:#2b3340;outline:none;cursor:pointer;
@@ -446,13 +535,14 @@ body.chrome-hidden #diag{
 #help .contact a{color:var(--a);text-decoration:none;font-weight:700;}
 #help .contact a:hover{text-decoration:underline;}
 
-/* 操作バーの直上。以前は fixed bottom:0 で #bar の背景に隠れ、エラー文が読めなかった */
+/* エラーのときだけ出る行。常設のガイドは映像にかぶるので置かない。
+   操作バーの直上に流し込む（fixed bottom:0 だと #bar の背景に隠れる）。
+   .alert は導入画面で出すかどうかの判定に使う */
 #hint{
   position:relative;z-index:1;text-align:center;
-  padding:0 12px 6px;font-size:.7rem;color:#8b93a2;pointer-events:none;
+  padding:0 12px 6px;font-size:.7rem;color:var(--live);pointer-events:none;
   text-shadow:0 1px 4px rgba(0,0,0,.9);
 }
-#hint.alert{color:var(--live);}
 #hint:empty{display:none;}
 
 
@@ -528,6 +618,8 @@ body.chrome-hidden #diag{
   #golive{padding:8px 10px;gap:5px;}
   #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
   #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
+  /* 折り返しても A ⇄ B の隣に居させる（#swap と同じ order） */
+  #linkVideo{order:1;}
   #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
   #volWrap{flex:1 1 100%;order:3;}
   #vol{flex:1 1 auto;width:auto;}
