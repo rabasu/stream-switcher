@@ -123,7 +123,8 @@
 <div id="nowAudio"><span class="dot"></span><span id="audioLabel">MAIN 音声</span></div>
 
 <div id="bottomChrome">
-<div id="hint">Space:音声切替　1/2/3:映像　L:LIVE　F:全画面　?:ヘルプ</div>
+<!-- エラー表示専用。空のときは出ない（#hint:empty） -->
+<div id="hint"></div>
 
 <button type="button" id="fsBtn" title="全画面 (F)" aria-label="全画面">
   <svg class="fsEnter" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -149,6 +150,10 @@
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
     <div class="barTail" id="videoTail">
       <div id="timeline">
+        <button type="button" id="playBtn" title="一時停止 (K)" aria-label="一時停止">
+          <svg class="iconPause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+          <svg class="iconPlay" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+        </button>
         <input type="range" id="scrub" min="0" max="600" value="600" step="1">
         <button class="pill live" id="golive" title="LIVEの最先端へ (L)">
           <span class="liveDot" aria-hidden="true"></span><span id="offsetLabel">LIVE</span><kbd>L</kbd>
@@ -163,7 +168,8 @@
     <div class="barTail" id="audioTail">
       <button class="pill" data-aud="both" data-k="both">同時<kbd>R</kbd></button>
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
-      <button id="swap">A ⇄ B<small>SPACE</small></button>
+      <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)">A ⇄ B<small>SPACE</small></button>
+      <button type="button" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <div class="row" id="volWrap">
         <button type="button" id="volMute" title="ミュート (M)" aria-label="ミュート">
           <svg class="iconVolOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
@@ -206,7 +212,7 @@
     <div class="group">
       <span>設定</span>
       <div class="row">
-        <button class="pill on" id="eco" data-k="both">省帯域<kbd>V</kbd></button>
+        <button class="pill on" id="eco" data-k="both" title="省帯域モード ON (V)">省帯域<kbd>V</kbd></button>
         <button class="pill" id="diagbtn" data-k="both">診断<kbd>D</kbd></button>
         <button class="pill" id="helpbtn2">ヘルプ<kbd>?</kbd></button>
       </div>
@@ -221,7 +227,8 @@
     <h3 class="kbOnly">キーボードショートカット</h3>
     <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
-      <tr><td>Space</td><td>VC-A と VC-B の音声を交互に切り替える（映像は動きません）。MAIN やミュートのときは VC-A に入ります</td></tr>
+      <tr><td>Space</td><td>VC-A と VC-B を交互に切り替える。既定では映像と音声の両方が動きます。MAIN やミュートのときは VC-A に入ります</td></tr>
+      <tr><td>S</td><td>Space で切り替える対象を <b>音声&amp;映像</b> / <b>音声</b> で切り替える（A ⇄ B の右のトグルと同じ）。映像も動かす設定のあいだは、往復のたびに画質が落ちないよう省帯域モードを自動で一時解除します</td></tr>
       <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
       <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
@@ -229,14 +236,14 @@
       <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
-      <tr><td>K</td><td>3本まとめて一時停止 / 再開。映像のクリックでも同じです</td></tr>
+      <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像の中央に出るボタンでも同じです</td></tr>
       <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）</td></tr>
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
 
       <tr><th colspan="2">画面と調整</th></tr>
       <tr><td>R</td><td>VC-A と VC-B を同時に流す</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
-      <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します</td></tr>
+      <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します。Space で映像も切り替えて往復している間は自動で一時解除し、切替直後の画質低下を避けます</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
       <tr><td>?</td><td>このヘルプ</td></tr>
     </table>
@@ -244,6 +251,7 @@
     <table class="touchOnly">
       <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです</td></tr>
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます</td></tr>
+      <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>
       <tr><td>通信量</td><td>配信を3本まで同時に受信します。モバイル回線ではご注意ください</td></tr>
     </table>
