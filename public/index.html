@@ -97,6 +97,13 @@
   <svg class="iconPlay" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
 </button>
 
+<!-- 共有URLから開くと自動再生のため無音で始まる。押せば解決するチップを
+     操作バーの上に出す（音声を選ぶまで消えない） -->
+<button type="button" id="unmuteChip" hidden>
+  <svg class="chipIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg>
+  <span>ミュート解除</span>
+</button>
+
 <div id="loading" hidden>
   <div class="spinner" aria-hidden="true"></div>
   <p>配信を読み込んでいます…</p>
@@ -166,10 +173,22 @@
     <button class="pill srcBtn" data-aud="a" data-k="a">VC-A<kbd>W</kbd></button>
     <button class="pill srcBtn" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
     <div class="barTail" id="audioTail">
-      <button class="pill" data-aud="both" data-k="both">同時<kbd>R</kbd></button>
+      <button type="button" class="switch" id="mix" role="switch" aria-checked="false" aria-label="同時再生" title="同時再生 OFF — 音声ボタンは1本に切り替えます (R)"><span>同時再生</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
-      <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)">A ⇄ B<small>SPACE</small></button>
-      <button type="button" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
+      <div id="swapWrap">
+        <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)"><span id="swapLabel">A ⇄ B</span><small>SPACE</small></button>
+        <!-- ボタン右端だけ、行き来する2本を選ぶ自前のメニューを開く。
+             それ以外を押したときは今までどおり切り替わる -->
+        <button type="button" id="swapCaretBtn" class="swapCaret" aria-haspopup="true" aria-expanded="false" aria-label="Space で行き来する2本を選ぶ">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>
+        </button>
+        <div id="swapMenu" class="swapMenu" role="menu" aria-label="Space で行き来する2本" hidden>
+          <button type="button" class="swapMenuItem" role="menuitemradio" data-pair="main-a">MAIN ⇄ VC-A</button>
+          <button type="button" class="swapMenuItem" role="menuitemradio" data-pair="main-b">MAIN ⇄ VC-B</button>
+          <button type="button" class="swapMenuItem" role="menuitemradio" data-pair="a-b">VC-A ⇄ VC-B</button>
+        </div>
+      </div>
+      <button type="button" class="switch" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <div class="row" id="volWrap">
         <button type="button" id="volMute" title="ミュート (M)" aria-label="ミュート">
           <svg class="iconVolOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
@@ -227,21 +246,21 @@
     <h3 class="kbOnly">キーボードショートカット</h3>
     <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
-      <tr><td>Space</td><td>VC-A と VC-B を交互に切り替える。既定では映像と音声の両方が動きます。MAIN やミュートのときは VC-A に入ります</td></tr>
+      <tr><td>Space</td><td>2本を交互に切り替える。既定では映像と音声の両方が動きます。行き来する2本は A ⇄ B ボタン右端の ▾ から選べます（MAIN ⇄ VC-A など）。組の外にいるときは1本目に入ります。同時再生中は、組のうち鳴っているほうだけが入れ替わり、他はそのまま鳴り続けます</td></tr>
       <tr><td>S</td><td>Space で切り替える対象を <b>音声&amp;映像</b> / <b>音声</b> で切り替える（A ⇄ B の右のトグルと同じ）。映像も動かす設定のあいだは、往復のたびに画質が落ちないよう省帯域モードを自動で一時解除します</td></tr>
-      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
-      <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります</td></tr>
+      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B にする。同時再生が ON のときは、押すたびに足す / 外すになります。読み込んでいない配信は選べません（ボタンも薄く表示されます）</td></tr>
+      <tr><td>M</td><td>音量を 0 にする / 戻す。音声の選択はそのまま残るので、戻すと同じ配信が鳴ります</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
       <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
       <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
-      <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像の中央に出るボタンでも同じです</td></tr>
+      <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像にカーソルを置くと中央に出るボタンでも同じです</td></tr>
       <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）</td></tr>
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
 
       <tr><th colspan="2">画面と調整</th></tr>
-      <tr><td>R</td><td>VC-A と VC-B を同時に流す</td></tr>
+      <tr><td>R</td><td>同時再生のオン / オフ。オンのあいだは音声ボタンと Q/W/E が「足す / 外す」になり、最大3本まで混ぜられます（MAIN + VC-A など）。最後の1本は外せません（消すときは M）</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
       <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します。Space で映像も切り替えて往復している間は自動で一時解除し、切替直後の画質低下を避けます</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
@@ -249,7 +268,7 @@
     </table>
     <h3 class="touchOnly">操作方法</h3>
     <table class="touchOnly">
-      <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです</td></tr>
+      <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです。読み込んでいない配信のボタンは薄く表示され、押せません</td></tr>
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます</td></tr>
       <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>

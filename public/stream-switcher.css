@@ -3,12 +3,19 @@
   --setupH:96px;
   /* #bar の左右パディング。下段の中央寄せがこの値を基準にする */
   --barPadX:18px;
+  /* #bottomChrome の実測高さ。JS が更新する。ミュート解除チップを
+     操作バーの真上へ置くために使う */
+  --chromeH:120px;
   /* A ⇄ B と切替対象スイッチの幅。中央からのオフセット計算にも使う */
   --swapW:200px;
   --switchW:62px;
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
-  --a:#4ea8de; --b:#f2a65a; --main:#8b9aa8; --live:#e5484d; --ok:#7bc47f;
+  /* MAIN の識別色。以前は灰色（#8b9aa8）で、選択中でも disabled に
+     見えてしまっていた。--ok（同時再生・省帯域などの汎用の「on」色）
+     とは色相・彩度をずらし、A・B と並んでも別の配信だと分かるように
+     はっきりした緑にする */
+  --a:#4ea8de; --b:#f2a65a; --main:#3ddc84; --live:#e5484d; --ok:#7bc47f;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
@@ -29,6 +36,28 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 
 /* iframeにフォーカスを奪われないようクリックを遮断 */
 #shield{position:fixed;inset:0;z-index:5;background:transparent;}
+
+/* ===== ミュート解除チップ =====
+   共有URLから開くと、自動再生を通すために音を止めた状態で始まる。
+   「なぜ鳴らないのか」を伝えるだけでなく、押せばその場で鳴るように
+   する。見逃すと手がかりが残らないので、音声を選ぶまで消さない。
+   操作バーの自動非表示とは独立させたいので #bottomChrome の外に置き、
+   実測した高さ（--chromeH）ぶんだけ持ち上げる。 */
+#unmuteChip{
+  position:fixed;left:50%;bottom:calc(var(--chromeH) + 16px);
+  transform:translateX(-50%);z-index:18;
+  display:flex;align-items:center;gap:8px;
+  padding:10px 18px;border:none;border-radius:999px;cursor:pointer;
+  background:rgba(7,9,12,.86);color:#fff;backdrop-filter:blur(4px);
+  font:inherit;font-size:.82rem;font-weight:700;letter-spacing:.02em;
+  box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.12);
+  transition:background .15s;
+}
+#unmuteChip[hidden]{display:none;}
+#unmuteChip:hover{background:rgba(7,9,12,.96);}
+#unmuteChip .chipIcon{color:var(--live);flex-shrink:0;}
+/* 導入画面ではまだ再生していない */
+#splash:not(.gone) ~ #unmuteChip{display:none;}
 
 /* ===== 導入画面 ===== */
 #splash{
@@ -109,9 +138,16 @@ body:not(.touch) #centerBtn{
   width:136px;height:136px;opacity:0;
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
+/* ボタンの上に載せたときだけ出るのでは狭すぎて見つからない。
+   カーソルが映像の上にあるあいだは出しておく。#shield は映像の全面を
+   覆っていて、上下のメニュー（z-20）やパネルはその上に乗っているので、
+   メニューの上へ来ると #shield が :hover でなくなり自然に引っ込む。
+   自分で UI を畳んだとき（chrome-hidden）は映像だけ見たいので出さない */
+body:not(.touch):not(.chrome-hidden) #shield:hover ~ #centerBtn{opacity:1;}
+/* ボタンに載っているあいだは濃くして、押せることを示す */
 body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
-/* 止めているあいだは出しておく。ホバーしないと出ないままだと、
-   止まっていることも戻し方も分からない */
+/* 止めているあいだは出しておく。出ていないと、止まっていることも
+   戻し方も分からない */
 body:not(.touch).paused #centerBtn{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
@@ -177,10 +213,10 @@ body:not(.touch) .touchOnly{display:none;}
    PC 側で行う前提なので、オペレーター向けの操作は出さない。
    ================================================================ */
 /* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
-body.touch #swap,
+body.touch #swapWrap,
 /* A⇄B（Space）の切替対象を選ぶトグル。A⇄B が無ければ一緒に不要 */
 body.touch #linkVideo,
-body.touch [data-aud="both"],
+body.touch #mix,
 /* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
 body.touch #volWrap,
 /* スクラブバーがあるので不要 */
@@ -316,25 +352,34 @@ body.chrome-hidden #diag{
 .pill.on[data-k="b"]{background:var(--b);border-color:var(--b);}
 .pill.on[data-k="none"]{background:var(--live);border-color:var(--live);color:#fff;}
 .pill.on[data-k="both"]{background:var(--ok);border-color:var(--ok);}
+/* 読み込んでいない配信のボタン。押しても何も起きないので、
+   押せないことを見た目でも示す（ホバーの反応も止める） */
+.pill:disabled{opacity:.3;cursor:default;}
+.pill:disabled:hover{border-color:var(--line);color:var(--sub);}
+.trim button:disabled{opacity:.3;cursor:default;}
 /* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
 .pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
-/* ===== Space（A ⇄ B）の切替対象トグル =====
-   A ⇄ B に対するオプションでしかないので、ピルにすると主張が強すぎて
-   かえって「Space の設定」だと読み取りにくい。枠も塗りも持たせず、
-   現在の対象を示す小さな文字と、その下のスイッチだけにする。
-   ラベルは 音声 / 音声&映像 で幅が変わるので、長い方で幅を固定して
-   切り替えても隣のボタンが動かないようにする。 */
-#linkVideo{
+/* ===== モードのスイッチ =====
+   「同時再生」と「Space の切替対象」の2つ。どちらも他のボタンの
+   挙動そのものを変える設定で、音源や操作そのものではない。ピルに
+   すると隣の MAIN / VC-A / VC-B と並列に見えて役割を取り違えるので、
+   枠も塗りも持たない小さなスイッチにして、押すものと区別する。
+   ラベルの幅は長い方（音声&映像）で固定し、切り替えても隣が
+   動かないようにする。2つは同じ幅に揃える。 */
+.switch{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
   background:none;border:0;padding:2px 4px;min-width:var(--switchW);cursor:pointer;
   font:inherit;font-size:.62rem;font-weight:700;letter-spacing:.02em;line-height:1;
   color:var(--sub);transition:color .12s;flex-shrink:0;
 }
-#linkVideo:hover{color:var(--text);}
+.switch:hover{color:var(--text);}
 /* 枠を持たない要素なので、UA 既定のリングは大きな箱に見えてしまう */
-#linkVideo:focus-visible{outline:2px solid var(--a);outline-offset:1px;border-radius:6px;}
-#linkVideoLabel{white-space:nowrap;}
+.switch:focus-visible{outline:2px solid var(--a);outline-offset:1px;border-radius:6px;}
+.switch > span:first-child{white-space:nowrap;}
+/* 混ぜる相手がいないときなど */
+.switch:disabled{opacity:.3;cursor:default;}
+.switch:disabled:hover{color:var(--sub);}
 .switchTrack{
   position:relative;display:block;width:30px;height:14px;border-radius:999px;
   background:#2b3340;transition:background .12s;
@@ -343,20 +388,69 @@ body.chrome-hidden #diag{
   position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
   background:var(--sub);transition:transform .12s,background .12s;
 }
-#linkVideo[aria-checked="true"] .switchTrack{background:var(--ok);}
-#linkVideo[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
+.switch[aria-checked="true"] .switchTrack{background:var(--ok);}
+.switch[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
 
 /* 高さは MAIN / VC-A / VC-B のボタンに揃える。SPACE の添え字は行を
    増やさないよう、ピルの <kbd> と同じように後ろへ並べる */
+#swapWrap{position:relative;display:flex;align-items:center;flex-shrink:0;}
 #swap{
   background:#fff;color:#04060a;border:none;border-radius:8px;
-  min-width:var(--swapW);padding:8px 22px;font-size:.95rem;font-weight:800;
+  width:var(--swapW);padding:8px 30px;font-size:.95rem;font-weight:800;
   cursor:pointer;letter-spacing:.02em;
   box-shadow:0 0 0 1px rgba(255,255,255,.15),0 4px 16px rgba(0,0,0,.4);
-  line-height:1.1;flex-shrink:0;
+  line-height:1.1;
 }
 #swap:active{filter:brightness(.92);}
 #swap small{font-size:.6rem;font-weight:700;opacity:.5;letter-spacing:.1em;margin-left:9px;}
+/* 2本そろった組み合わせが無いとき */
+#swap:disabled{opacity:.35;box-shadow:none;cursor:default;}
+
+/* 行き来する2本を選ぶメニューを開くボタン。#swap と同じ白いピルの
+   右端にだけ重ね、その角だけ丸めて「ここだけ別の操作」だと示す。
+   組み合わせを増やしても表の情報量が増えないよう、ボタン本体の見た目は
+   変えない（押すと今までどおり切り替わる）。 */
+.swapCaret{
+  position:absolute;top:0;right:0;width:32px;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  margin:0;padding:0;border:0;border-radius:0 8px 8px 0;
+  background:none;color:#4b5563;cursor:pointer;transition:background .12s,color .12s;
+}
+.swapCaret:hover{background:rgba(0,0,0,.06);color:#1f2937;}
+.swapCaret[aria-expanded="true"]{background:rgba(0,0,0,.06);color:#1f2937;}
+.swapCaret svg{transition:transform .12s;}
+.swapCaret[aria-expanded="true"] svg{transform:rotate(180deg);}
+.swapCaret:focus-visible{outline:2px solid var(--a);outline-offset:-2px;}
+.swapCaret:disabled{opacity:.35;pointer-events:none;}
+
+/* メニュー本体。ネイティブの <select> は OS 標準の見た目になって
+   しまうため、他のパネル（診断・ヘルプ）と同じ配色の自前パネルにする。
+   #swap の真上、キャレットの右端に揃えて上向きに開く
+   （操作バーは画面下端に固定されているため）。 */
+.swapMenu{
+  position:absolute;right:0;bottom:calc(100% + 8px);z-index:1;
+  min-width:180px;padding:6px;border-radius:10px;
+  background:var(--panel);border:1px solid var(--line);
+  box-shadow:0 10px 28px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06);
+}
+.swapMenu[hidden]{display:none;}
+.swapMenuItem{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  width:100%;padding:9px 10px;border:0;border-radius:6px;
+  background:none;color:var(--text);font:inherit;font-size:.85rem;font-weight:600;
+  cursor:pointer;text-align:left;white-space:nowrap;
+}
+.swapMenuItem:hover:not([aria-disabled="true"]),
+.swapMenuItem:focus-visible{background:rgba(255,255,255,.08);}
+.swapMenuItem:focus-visible{outline:none;}
+/* 選択中は、他のボタンの「on」表現と揃えて緑のドットで示す */
+.swapMenuItem::after{
+  content:'';width:7px;height:7px;border-radius:50%;background:var(--ok);
+  flex-shrink:0;opacity:0;
+}
+.swapMenuItem[aria-checked="true"]{color:var(--ok);}
+.swapMenuItem[aria-checked="true"]::after{opacity:1;}
+.swapMenuItem[aria-disabled="true"]{color:var(--sub);opacity:.4;cursor:default;}
 
 /* ================================================================
    下段の中央寄せ
@@ -372,13 +466,13 @@ body.chrome-hidden #diag{
    ================================================================ */
 @media (min-width:1100px){
   #audioTail{position:relative;}
-  #swap,#linkVideo,#volWrap{position:absolute;top:50%;}
+  #swapWrap,#linkVideo,#volWrap{position:absolute;top:50%;}
   /* A ⇄ B の中心を画面中央に。横向きスマホ用の min-width が後ろにあり、
      幅が変わると右隣のスイッチと重なるので詳細度を上げて押さえる */
-  #audioTail > #swap{
+  #audioTail > #swapWrap{
     right:calc(50vw - var(--barPadX));transform:translate(50%,-50%);
-    min-width:var(--swapW);
   }
+  #audioTail > #swapWrap > #swap{width:var(--swapW);}
   /* その右隣。A ⇄ B の右端から 10px 空ける */
   #linkVideo{
     right:calc(50vw - var(--barPadX) - var(--swapW)/2 - 10px - var(--switchW)/2);
@@ -617,7 +711,8 @@ body.paused #playBtn .iconPlay{display:block;}
   #offsetLabel{min-width:4.4em;font-size:.75rem;}
   #golive{padding:8px 10px;gap:5px;}
   #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
-  #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
+  #swapWrap{flex:1 1 60%;min-width:0;order:1;}
+  #swapWrap > #swap{width:100%;padding:10px 30px;font-size:.9rem;}
   /* 折り返しても A ⇄ B の隣に居させる（#swap と同じ order） */
   #linkVideo{order:1;}
   #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
@@ -647,7 +742,8 @@ body.paused #playBtn .iconPlay{display:block;}
   .barGrid{grid-template-columns:2em repeat(3,5.6em) minmax(0,1fr);}
   .barTail{grid-column:auto;}
   #audioTail > .pill{flex:0 1 auto;}
-  #swap{flex:0 1 auto;order:0;min-width:120px;}
+  #swapWrap{flex:0 1 auto;order:0;}
+  #swapWrap > #swap{width:auto;min-width:120px;}
   #volWrap{flex:0 1 auto;order:0;}
   #vol{width:90px;flex:0 0 auto;}
   #toggleMore{margin-left:auto;order:0;}
@@ -658,7 +754,8 @@ body.paused #playBtn .iconPlay{display:block;}
   #bar{padding-top:10px;gap:8px;}
   .barGrid{row-gap:6px;}
   .barGrid > .srcBtn{padding:8px 4px;}
-  #audioTail > .pill,#swap{padding:8px;}
+  #audioTail > .pill{padding:8px;}
+  #swapWrap > #swap{padding:8px 28px;}
   /* 高さが無い。音声の行が色で現在値を示すので重複表示は落とす */
   #nowAudio{display:none;}
   /* 再生中は上メニューを出さない。下メニューと衝突する上に映像を隠すため、

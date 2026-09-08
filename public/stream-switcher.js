@@ -3,8 +3,16 @@ const FADE_MS = 120;              // 音声切替のクロスフェード時間(
 const players = {};
 let ready = {main:false, a:false, b:false};
 let videoSrc = 'main';
-let audioSrc = 'main';
-var ecoMode = true;
+/* 鳴らしている配信。KEYS の並びで持つ。空 = ミュート。
+   同時再生モードでは最大3本まで入る */
+let audioKeys = [];
+/* ミュート（音量0）。鳴らす配信の選択とは独立させる。選択を空にして
+   しまうと、音量を戻したとき何が鳴るのかが画面から分からなくなる */
+var muted = false;
+/* 共有URLから開いたときの「ジェスチャーが無く鳴らせない」状態。
+   ミュート解除チップを出すかどうかの判定に使う。unmute() で消える */
+var pendingUnmute = false;
+var mixMode = false;              // 同時再生（複数を混ぜる）モード
 var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
 var diagOn = false;
 
@@ -14,6 +22,12 @@ var diagOn = false;
    無視する (3) iPhone に要素全画面が無い、の3点でUIを変える。
    ================================================================ */
 const isTouch = matchMedia('(hover:none) and (pointer:coarse)').matches;
+/* 省帯域は元々モバイル回線の通信量対策。PC は大抵ワイヤード / 安定
+   Wi-Fi で3本同時でも問題になりにくく、むしろ切替直後にぼやける方が
+   気になるため、既定は「タッチ端末だけ ON」にする（ボタン自体、
+   タッチ端末では常に ON 固定で表示すらしない）。PC でも会場Wi-Fiや
+   テザリング利用など通信量が気になる場合は手動で ON にできる */
+var ecoMode = isTouch;
 const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function fsSupported(){
@@ -94,19 +108,27 @@ function hideLoading(){
 }
 
 /* ---------- YouTube API ---------- */
-let apiReady = false, pending = null;
+let apiReady = false, pending = null, pendingSound = false;
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
 document.head.appendChild(tag);
-window.onYouTubeIframeAPIReady = () => { apiReady = true; if(pending){ build(pending); pending = null; } };
+window.onYouTubeIframeAPIReady = () => {
+  apiReady = true;
+  if(pending){ build(pending, pendingSound); pending = null; }
+};
 
-function build(ids){
+/* withSound: 読み込むボタン経由。クリック済みでブラウザの自動再生の
+   条件を満たしているので、最初から音を出せる。共有URLから開いたときは
+   ジェスチャーが無いので、音を止めたまま始めてチップで解除してもらう */
+function build(ids, withSound){
   paused = false;
   targetOffset = 0;
-  audioUnlocked = false;          // 再読み込み時は mute 再生で自動再生を通す
+  audioUnlocked = !!withSound;
   resumeEco();                    // 省帯域の一時解除は持ち越さない
   videoSrc = 'main';
-  audioSrc = 'none';              // 起動はミュート。赤いミュートボタンで分かる
+  audioKeys = [];
+  muted = false;
+  pendingUnmute = false;
   KEYS.forEach(k => {
     if(players[k]){ players[k].destroy(); players[k] = null; }
     ready[k] = false;
@@ -139,7 +161,7 @@ function build(ids){
           e.target.setVolume(masterVol);
           e.target.mute();
           e.target.playVideo();
-          applyAudio(audioSrc, true);
+          applyAudio(audioKeys, true);
           syncPlayerToLive(k);
         },
         onError: ev => {
@@ -154,11 +176,20 @@ function build(ids){
       }
     });
   });
+  renderAvailability();             // 読み込まなかった配信のボタンを落とす
   document.getElementById('splash').classList.add('gone');
   placeSetup();                     // カードから固定ヘッダーの位置へ戻す
   applyOrientationMode();           // 縦=入力欄を常設 / 横=映像優先で出さない
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
-  applyAudio(audioSrc, true);
+  // 共有URLから開いたとき（withSound=false）もジェスチャーが無いだけで、
+  // 「解除したら何が鳴るか」は決めておく。MAIN（無ければ先頭）を選んだ
+  // 状態にし、実際の音は muted で止めておく
+  const firstAudio = KEYS.find(k => players[k]);
+  if(!withSound){
+    muted = true;
+    pendingUnmute = true;
+  }
+  applyAudio(firstAudio ? [firstAudio] : [], true);
   showChrome();
 }
 
@@ -288,49 +319,139 @@ function fadeTo(k, target, instant){
   }, 20);
 }
 
-function applyAudio(src, instant){
-  audioSrc = src;
-  const on = src === 'both' ? ['a','b'] : (src === 'none' ? [] : [src]);
-  KEYS.forEach(k => fadeTo(k, on.includes(k) ? masterVol : 0, instant));
+/* ================================================================
+   読み込んでいる配信だけを選べるようにする
+   URL を入れていない配信を選ぶと、映像は動かないのに音声だけ
+   無音のほうへ移ってしまう。toggleAudioKey / setVideo で弾き、
+   applyAudio も受け取った集合から落とす。ボタンにも disabled を
+   付けて、押せないことを見た目でも示す。
+   ================================================================ */
+function loadedCount(){ return KEYS.filter(k => players[k]).length; }
+function renderAvailability(){
+  document.querySelectorAll('[data-vid]').forEach(b => b.disabled = !players[b.dataset.vid]);
+  document.querySelectorAll('[data-aud]').forEach(b => {
+    const k = b.dataset.aud;
+    // ミュートは配信が1本でもあれば押せる
+    b.disabled = k === 'none' ? loadedCount() === 0 : !players[k];
+  });
+  // ズレ微調整も、無い配信の分は動かしても意味がない
+  document.querySelectorAll('[data-trim]').forEach(b => b.disabled = !players[b.dataset.trim]);
+  // 同時再生は混ぜる相手が要る
+  document.getElementById('mix').disabled = loadedCount() < 2;
+  if(loadedCount() < 2 && mixMode) mixMode = false;
+  renderMix();
+  renderSwapPair();
+  renderUnmuteChip();
+}
 
-  document.querySelectorAll('[data-aud]').forEach(b =>
-    b.classList.toggle('on', b.dataset.aud === audioSrc));
+const SRC_LABEL = {main:'MAIN', a:'VC-A', b:'VC-B'};
+const SRC_COLOR = {main:'#3ddc84', a:'#4ea8de', b:'#f2a65a'};
 
-  const labels = {main:'MAIN 音声', a:'VC-A 音声', b:'VC-B 音声', both:'A + B 同時', none:'ミュート'};
-  const colors = {main:'#8b9aa8', a:'#4ea8de', b:'#f2a65a', both:'#7bc47f', none:'#e5484d'};
-  document.getElementById('audioLabel').textContent = labels[src];
-  const dot = document.querySelector('#nowAudio .dot');
-  dot.style.background = colors[src];
-  dot.classList.toggle('live', src !== 'none');
+/* 鳴らす配信を集合で受け取る。読み込んでいないものは落とし、
+   KEYS の並びに揃えてから配る（表示の順を安定させるため） */
+function applyAudio(keys, instant){
+  audioKeys = KEYS.filter(k => players[k] && keys.includes(k));
+  KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? masterVol : 0, instant));
+
+  // 選択の点灯はミュート中も保つ。「いま音量を戻したら何が鳴るか」を残す
+  document.querySelectorAll('[data-aud]').forEach(b => {
+    const k = b.dataset.aud;
+    b.classList.toggle('on', k === 'none' ? muted : audioKeys.includes(k));
+  });
+
+  renderNowAudio();
+  renderUnmuteChip();
   renderVolume();
+}
+
+/* 共有URLから開いた直後、ジェスチャーが無くて鳴らせないあいだだけ出す。
+   押せば解除できる。unmute() を通ると pendingUnmute が消えるので、
+   そのあとに自分でミュートしても（M / スピーカー）再び出ることはない */
+function renderUnmuteChip(){
+  document.getElementById('unmuteChip').hidden =
+    !pendingUnmute || !isMuted() || !KEYS.some(k => players[k]);
+}
+
+/* 右上のインジケーター。選択そのものだけでなく音量にも左右されるので、
+   音量を動かしたときにも描き直す */
+function renderNowAudio(){
+  const n = audioKeys.length;
+  document.getElementById('audioLabel').textContent =
+    n === 0 ? 'ミュート'
+    : n === 1 ? SRC_LABEL[audioKeys[0]] + ' 音声'
+    : audioKeys.map(k => SRC_LABEL[k]).join(' + ');
+  // 選んでいても鳴っていない（ミュート中 / 音量0）ときは、赤い点で点滅なし
+  const live = n > 0 && !isMuted();
+  const dot = document.querySelector('#nowAudio .dot');
+  dot.style.background = !live ? '#e5484d' : (n === 1 ? SRC_COLOR[audioKeys[0]] : '#7bc47f');
+  dot.classList.toggle('live', live);
+}
+
+/* ================================================================
+   同時再生
+   実況と自チームの VC のように、2本以上を混ぜて聴きたいことがある。
+   モードを ON にすると、音声ボタン（と Q/W/E）が「切り替え」から
+   「足し引き」に変わる。最大3本。
+   全部外して無音になる事故を避けたいので、最後の1本は外せない
+   （消したいときはミュート = M / スピーカーのボタンを使う）。
+   ================================================================ */
+function renderMix(){
+  const btn = document.getElementById('mix');
+  btn.setAttribute('aria-checked', mixMode ? 'true' : 'false');
+  btn.title = mixMode
+    ? '同時再生 ON — 音声ボタンで足し引きします（最大3本）(R)'
+    : '同時再生 OFF — 音声ボタンは1本に切り替えます (R)';
+}
+function toggleMix(){
+  if(loadedCount() < 2) return;
+  mixMode = !mixMode;
+  // OFF に戻すときは先頭の1本に絞る。混ざったまま切替モードへ戻ると、
+  // 次のクリックで一度に減って何が起きたか分からなくなる
+  if(!mixMode && audioKeys.length > 1) applyAudio([audioKeys[0]]);
+  renderMix();
+}
+/* 音声ボタン / Q・W・E の共通の入口 */
+function toggleAudioKey(k){
+  if(!players[k]) return;
+  audioUnlocked = true;
+  if(!mixMode){ applyAudio([k]); return; }
+  if(!audioKeys.includes(k)){ applyAudio(audioKeys.concat(k)); return; }
+  if(audioKeys.length <= 1) return;            // 最後の1本は外せない
+  applyAudio(audioKeys.filter(x => x !== k));
 }
 
 /* ================================================================
    ミュート
    音量バーの根元のスピーカーが担当する（YouTube などと同じ位置）。
-   押すとバーが最小になりミュート、もう一度押すと元の音声に戻る。
-   ミュートは音量を 0 にするのではなく音声の選択を none にするので、
-   解除したときに元の音量へそのまま戻る。
+   押すとバーが最小になりミュート、もう一度押すと元の音量に戻る。
+   音量バーと一体の操作なので、止めるのは音量だけにして音声の選択は
+   触らない。選択を消してしまうと、音量を戻したときに何が鳴るのかが
+   画面から読み取れなくなる。
    ================================================================ */
-let preMuteSrc = null;
-function firstAudioSrc(){ return KEYS.find(k => players[k]) || 'main'; }
-function isMuted(){ return audioSrc === 'none' || masterVol === 0; }
+function isMuted(){ return muted || masterVol === 0 || audioKeys.length === 0; }
 function muteAll(){
-  if(audioSrc !== 'none') preMuteSrc = audioSrc;
-  applyAudio('none');
+  muted = true;
+  applyAudio(audioKeys);          // 選択はそのまま。音量だけ落とす
 }
 function unmute(){
   audioUnlocked = true;
-  const src = (preMuteSrc && players[preMuteSrc]) ? preMuteSrc : firstAudioSrc();
-  preMuteSrc = null;
+  muted = false;
+  pendingUnmute = false;
   if(masterVol === 0) setVolume(100);
-  applyAudio(src);
+  // まだ何も選んでいなければ（起動直後に選択ボタンで外された等）、
+  // 読み込んでいる先頭を鳴らす
+  if(!audioKeys.length){
+    const first = KEYS.find(k => players[k]);
+    applyAudio(first ? [first] : []);
+  }else{
+    applyAudio(audioKeys);
+  }
 }
 function toggleMute(){ isMuted() ? unmute() : muteAll(); }
 
 /* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
 function renderVolume(){
-  const shown = audioSrc === 'none' ? 0 : masterVol;
+  const shown = (muted || audioKeys.length === 0) ? 0 : masterVol;
   const el = document.getElementById('vol');
   if(el.value != shown) el.value = shown;
   el.style.background =
@@ -346,31 +467,125 @@ function renderVolume(){
   btn.setAttribute('aria-label', m ? 'ミュート解除' : 'ミュート');
 }
 
-/* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る。
+/* ================================================================
+   Space で行き来する2本
+   既定は VC-A ⇄ VC-B だが、MAIN と VC-A の2本だけ読み込んで使う
+   こともあるので、どの2本を往復するかを選べるようにする。選択は
+   A ⇄ B ボタンの右端のカレットから、自前のメニュー（.swapMenu）で行う。
+   片方でも読み込んでいない組み合わせは選べない。
+   ================================================================ */
+const SWAP_PAIRS = [
+  {id:'main-a', keys:['main','a'], short:'MAIN ⇄ A', full:'MAIN ⇄ VC-A'},
+  {id:'main-b', keys:['main','b'], short:'MAIN ⇄ B', full:'MAIN ⇄ VC-B'},
+  {id:'a-b',    keys:['a','b'],    short:'A ⇄ B',    full:'VC-A ⇄ VC-B'}
+];
+var swapPairId = 'a-b';
+function pairReady(p){ return p.keys.every(k => !!players[k]); }
+/* いま実際に使える組み合わせ。2本そろっていなければ null */
+function currentPair(){
+  const p = SWAP_PAIRS.find(x => x.id === swapPairId);
+  return p && pairReady(p) ? p : null;
+}
+function renderSwapPair(){
+  // 選んでいた組み合わせが使えなくなったら、使える先頭へ寄せる
+  if(!currentPair()){
+    const first = SWAP_PAIRS.find(pairReady);
+    if(first) swapPairId = first.id;
+  }
+  const p = currentPair();
+  const btn = document.getElementById('swap');
+  btn.disabled = !p;
+  document.getElementById('swapCaretBtn').disabled = !p;
+  document.getElementById('swapLabel').textContent =
+    (p || SWAP_PAIRS.find(x => x.id === swapPairId)).short;
+  btn.title = p ? p.full + ' を切り替える (Space)'
+                : '行き来できる配信が2本そろっていません';
+
+  document.querySelectorAll('.swapMenuItem').forEach(item => {
+    const pair = SWAP_PAIRS.find(x => x.id === item.dataset.pair);
+    item.setAttribute('aria-disabled', pairReady(pair) ? 'false' : 'true');
+    item.setAttribute('aria-checked', item.dataset.pair === swapPairId ? 'true' : 'false');
+  });
+  if(!p) closeSwapMenu(false);   // 選べる組み合わせが無くなったら開いたままにしない
+}
+
+/* ================================================================
+   上のメニューの開閉
+   ネイティブの <select> は OS 標準の見た目になってしまうため、他の
+   パネル（診断・ヘルプ）と同じ配色の自前パネルにする。「メニュー
+   ボタン」パターン（role="menu" / menuitemradio）で、開閉・選択・
+   Escape・外側クリックだけを面倒みる。
+   矢印キーでの移動は実装しない。このアプリは Space と矢印キーを
+   画面全体のショートカットとして使っていて、メニューを開いている
+   最中でもそちらが先に音量やシークを動かしてしまうため、Tab と
+   Enter、クリックで選べれば十分と判断した。
+   ================================================================ */
+function swapMenuOpen(){ return !document.getElementById('swapMenu').hidden; }
+function openSwapMenu(){
+  if(document.getElementById('swap').disabled) return;
+  const menu = document.getElementById('swapMenu');
+  menu.hidden = false;
+  document.getElementById('swapCaretBtn').setAttribute('aria-expanded', 'true');
+  document.addEventListener('pointerdown', onSwapMenuOutside, true);
+  document.addEventListener('keydown', onSwapMenuKeydown, true);
+  const current = menu.querySelector('[data-pair="' + swapPairId + '"]');
+  (current || menu.querySelector('.swapMenuItem')).focus();
+}
+function closeSwapMenu(returnFocus){
+  const menu = document.getElementById('swapMenu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('swapCaretBtn').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('pointerdown', onSwapMenuOutside, true);
+  document.removeEventListener('keydown', onSwapMenuKeydown, true);
+  if(returnFocus) document.getElementById('swapCaretBtn').focus();
+}
+function onSwapMenuOutside(e){
+  if(!document.getElementById('swapWrap').contains(e.target)) closeSwapMenu(false);
+}
+function onSwapMenuKeydown(e){
+  if(e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();            // 全体のショートカット（? のヘルプなど）に渡さない
+  closeSwapMenu(true);
+}
+
+/* Space: 選んだ2本を交互に。組の外（MAIN やミュート）からは1本目に入る。
+   同時再生中は、組のうち鳴っているほうだけを入れ替え、他は鳴らしたまま
+   にする（MAIN を流しながら VC だけ行き来する使い方のため）。
    Space連動が ON なら映像も同じ配信へ動かす */
 function swapVc(){
+  closeSwapMenu(false);
+  const pair = currentPair();
+  if(!pair) return;
+  const from = pair.keys.find(k => audioKeys.includes(k)) || null;
+  // 組の両方が鳴っている（同時再生中）。入れ替える先がないので何もしない
+  if(pair.keys.every(k => audioKeys.includes(k))) return;
   audioUnlocked = true;
-  const next = audioSrc === 'a' ? 'b' : 'a';
-  if(linkVideo && players[next]){
+  const next = from === pair.keys[0] ? pair.keys[1] : pair.keys[0];
+  const keys = mixMode
+    ? audioKeys.filter(k => k !== from).concat(next)
+    : [next];
+  if(linkVideo){
     suspendEco();                 // 往復で目立つ「切替直後の画質低下」を避ける
     setVideo(next);
   }
-  applyAudio(next);
+  applyAudio(keys);
 }
 
 /* 全体音量。鳴っているプレーヤーにのみ即時反映する */
 function setVolume(v, silent){
   masterVol = Math.max(0, Math.min(100, Math.round(v)));
-  const on = audioSrc === 'both' ? ['a','b'] : (audioSrc === 'none' ? [] : [audioSrc]);
   KEYS.forEach(k => {
     const p = players[k];
-    if(!p || !ready[k] || !on.includes(k)) return;
+    if(!p || !ready[k] || !audioKeys.includes(k)) return;
     clearInterval(fades[k]);
     try{
       p.setVolume(masterVol);
-      (masterVol > 0 && canUnmute()) ? p.unMute() : p.mute();
+      (masterVol > 0 && !muted && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
   });
+  renderNowAudio();
   renderVolume();
 }
 
@@ -415,7 +630,7 @@ function togglePlay(){
     if(!p || !ready[k]) return;
     try{ paused ? p.pauseVideo() : p.playVideo(); }catch(e){}
   });
-  if(!paused) applyAudio(audioSrc, true);
+  if(!paused) applyAudio(audioKeys, true);
   renderTransport();
   showCenter();
 }
@@ -424,7 +639,7 @@ function goLive(){
   targetOffset = 0;
   paused = false;
   seekAll();
-  applyAudio(audioSrc, true);
+  applyAudio(audioKeys, true);
   // unmute 後に再生（順序を逆にするとポリシーで止まることがある）
   KEYS.forEach(k => { if(players[k] && ready[k]) players[k].playVideo(); });
   renderTransport();
@@ -529,7 +744,11 @@ function renderDiag(){
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
-    'Space対象   ' + (linkVideo ? '音声+映像' : '音声のみ')
+    '音声        ' + (audioKeys.join(' + ') || '選択なし')
+                    + (muted ? '（ミュート）' : '')
+                    + (mixMode ? '（同時再生 ON）' : '') + '\n',
+    'Space       ' + (currentPair() ? currentPair().short : '—')
+                    + ' / ' + (linkVideo ? '音声+映像' : '音声のみ')
   );
 }
 function toggleDiag(){
@@ -755,7 +974,17 @@ function applyOrientationMode(){
   auto ? scheduleHideChrome() : showChrome();
 }
 landscapeMQ.addEventListener('change', applyOrientationMode);
-if(window.ResizeObserver) new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
+/* ミュート解除チップを操作バーの真上に置くための実測値 */
+function syncChromeHeight(){
+  const h = Math.round(document.getElementById('bottomChrome').getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--chromeH', h + 'px');
+}
+syncChromeHeight();
+window.addEventListener('resize', syncChromeHeight);
+if(window.ResizeObserver){
+  new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
+  new ResizeObserver(syncChromeHeight).observe(document.getElementById('bottomChrome'));
+}
 window.addEventListener('resize', syncSetupHeight);
 window.addEventListener('orientationchange', () => setTimeout(syncSetupHeight, 250));
 placeSetup();
@@ -800,8 +1029,8 @@ document.getElementById('load').addEventListener('click', () => {
   KEYS.forEach(k => ids[k] = extractId(document.getElementById('u-'+k).value));
   if(!ids.main && !ids.a && !ids.b){ setStatusLine('URLを1つ以上入力してください'); return; }
   showLoading();
-  if(apiReady) build(ids);
-  else pending = ids;
+  if(apiReady) build(ids, true);
+  else { pending = ids; pendingSound = true; }
 });
 document.getElementById('copylink').addEventListener('click', function(){
   const u = new URL(location.href.split('?')[0]);
@@ -831,6 +1060,19 @@ document.getElementById('swap').addEventListener('click', swapVc);
 document.getElementById('golive').addEventListener('click', goLive);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('linkVideo').addEventListener('click', toggleLinkVideo);
+document.getElementById('swapCaretBtn').addEventListener('click', () => {
+  swapMenuOpen() ? closeSwapMenu(true) : openSwapMenu();
+});
+document.querySelectorAll('.swapMenuItem').forEach(item => {
+  item.addEventListener('click', () => {
+    if(item.getAttribute('aria-disabled') === 'true') return;
+    swapPairId = item.dataset.pair;
+    renderSwapPair();
+    // メニューを閉じたあとフォーカスが残ると Space がボタンに吸われる
+    closeSwapMenu(false);
+    reclaimFocus();
+  });
+});
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
 document.getElementById('playBtn').addEventListener('click', togglePlay);
 document.getElementById('centerBtn').addEventListener('click', () => {
@@ -850,9 +1092,9 @@ document.getElementById('helpclose').addEventListener('click', () => toggleHelp(
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
 document.querySelectorAll('[data-aud]').forEach(b => b.addEventListener('click', () => {
   if(b.dataset.aud === 'none'){ toggleMute(); return; }
-  audioUnlocked = true;
-  applyAudio(b.dataset.aud);
+  toggleAudioKey(b.dataset.aud);
 }));
+document.getElementById('mix').addEventListener('click', toggleMix);
 document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
@@ -861,13 +1103,18 @@ document.getElementById('vol').addEventListener('input', function(){
   // unmute() は renderVolume() でバーを描き直すので、値は先に控えておく
   const v = parseFloat(this.value);
   // ミュート中にバーを動かしたら鳴らす（動かしたのに無音、を避ける）
-  if(v > 0 && audioSrc === 'none') unmute();
+  if(v > 0 && isMuted()) unmute();
   setVolume(v);
 });
 document.getElementById('volMute').addEventListener('click', toggleMute);
+document.getElementById('unmuteChip').addEventListener('click', () => {
+  unmute();
+  reclaimFocus();
+});
 setVolume(100);
 renderEco();
 renderLinkVideo();
+renderAvailability();
 
 const scrubEl = document.getElementById('scrub');
 scrubEl.addEventListener('input', () => { scrubbing = true; renderTransport(); });
@@ -894,10 +1141,10 @@ window.addEventListener('keydown', e => {
 
   const map = {
     '1':()=>setVideo('main'), '2':()=>setVideo('a'), '3':()=>setVideo('b'),
-    'q':()=>{ audioUnlocked = true; applyAudio('main'); },
-    'w':()=>{ audioUnlocked = true; applyAudio('a'); },
-    'e':()=>{ audioUnlocked = true; applyAudio('b'); },
-    'r':()=>{ audioUnlocked = true; applyAudio('both'); },
+    'q':()=>toggleAudioKey('main'),
+    'w':()=>toggleAudioKey('a'),
+    'e':()=>toggleAudioKey('b'),
+    'r':toggleMix,
     'm':toggleMute,
     'k':togglePlay, 'l':goLive, 's':toggleLinkVideo, 'v':toggleEco, 'd':toggleDiag,
     'f':toggleFs
