@@ -109,9 +109,16 @@ body:not(.touch) #centerBtn{
   width:136px;height:136px;opacity:0;
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
+/* ボタンの上に載せたときだけ出るのでは狭すぎて見つからない。
+   カーソルが映像の上にあるあいだは出しておく。#shield は映像の全面を
+   覆っていて、上下のメニュー（z-20）やパネルはその上に乗っているので、
+   メニューの上へ来ると #shield が :hover でなくなり自然に引っ込む。
+   自分で UI を畳んだとき（chrome-hidden）は映像だけ見たいので出さない */
+body:not(.touch):not(.chrome-hidden) #shield:hover ~ #centerBtn{opacity:1;}
+/* ボタンに載っているあいだは濃くして、押せることを示す */
 body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
-/* 止めているあいだは出しておく。ホバーしないと出ないままだと、
-   止まっていることも戻し方も分からない */
+/* 止めているあいだは出しておく。出ていないと、止まっていることも
+   戻し方も分からない */
 body:not(.touch).paused #centerBtn{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
