@@ -9,6 +9,9 @@ let audioKeys = [];
 /* ミュート（音量0）。鳴らす配信の選択とは独立させる。選択を空にして
    しまうと、音量を戻したとき何が鳴るのかが画面から分からなくなる */
 var muted = false;
+/* 共有URLから開いたときの「ジェスチャーが無く鳴らせない」状態。
+   ミュート解除チップを出すかどうかの判定に使う。unmute() で消える */
+var pendingUnmute = false;
 var mixMode = false;              // 同時再生（複数を混ぜる）モード
 var ecoMode = true;
 var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
@@ -118,8 +121,9 @@ function build(ids, withSound){
   audioUnlocked = !!withSound;
   resumeEco();                    // 省帯域の一時解除は持ち越さない
   videoSrc = 'main';
-  audioKeys = [];                 // 起動は何も選んでいない状態
+  audioKeys = [];
   muted = false;
+  pendingUnmute = false;
   KEYS.forEach(k => {
     if(players[k]){ players[k].destroy(); players[k] = null; }
     ready[k] = false;
@@ -172,8 +176,15 @@ function build(ids, withSound){
   placeSetup();                     // カードから固定ヘッダーの位置へ戻す
   applyOrientationMode();           // 縦=入力欄を常設 / 横=映像優先で出さない
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
-  const firstAudio = withSound ? KEYS.find(k => players[k]) : null;
-  applyAudio(firstAudio ? [firstAudio] : audioKeys, true);
+  // 共有URLから開いたとき（withSound=false）もジェスチャーが無いだけで、
+  // 「解除したら何が鳴るか」は決めておく。MAIN（無ければ先頭）を選んだ
+  // 状態にし、実際の音は muted で止めておく
+  const firstAudio = KEYS.find(k => players[k]);
+  if(!withSound){
+    muted = true;
+    pendingUnmute = true;
+  }
+  applyAudio(firstAudio ? [firstAudio] : [], true);
   showChrome();
 }
 
@@ -348,11 +359,12 @@ function applyAudio(keys, instant){
   renderVolume();
 }
 
-/* 何も選んでいない＝何も鳴らない状態のあいだだけ出す。押せば解除できる。
-   自分でミュートしたとき（選択は残る）は出さない */
+/* 共有URLから開いた直後、ジェスチャーが無くて鳴らせないあいだだけ出す。
+   押せば解除できる。unmute() を通ると pendingUnmute が消えるので、
+   そのあとに自分でミュートしても（M / スピーカー）再び出ることはない */
 function renderUnmuteChip(){
   document.getElementById('unmuteChip').hidden =
-    audioKeys.length > 0 || !KEYS.some(k => players[k]);
+    !pendingUnmute || !isMuted() || !KEYS.some(k => players[k]);
 }
 
 /* 右上のインジケーター。選択そのものだけでなく音量にも左右されるので、
@@ -419,8 +431,10 @@ function muteAll(){
 function unmute(){
   audioUnlocked = true;
   muted = false;
+  pendingUnmute = false;
   if(masterVol === 0) setVolume(100);
-  // まだ何も選んでいなければ、読み込んでいる先頭を鳴らす
+  // まだ何も選んでいなければ（起動直後に選択ボタンで外された等）、
+  // 読み込んでいる先頭を鳴らす
   if(!audioKeys.length){
     const first = KEYS.find(k => players[k]);
     applyAudio(first ? [first] : []);
