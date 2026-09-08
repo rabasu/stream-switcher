@@ -351,8 +351,7 @@ function applyAudio(keys, instant){
    ================================================================ */
 function renderMix(){
   const btn = document.getElementById('mix');
-  btn.classList.toggle('on', mixMode);
-  btn.setAttribute('aria-pressed', mixMode ? 'true' : 'false');
+  btn.setAttribute('aria-checked', mixMode ? 'true' : 'false');
   btn.title = mixMode
     ? '同時再生 ON — 音声ボタンで足し引きします（最大3本）(R)'
     : '同時再生 OFF — 音声ボタンは1本に切り替えます (R)';

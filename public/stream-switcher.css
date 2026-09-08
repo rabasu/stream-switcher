@@ -331,22 +331,26 @@ body.chrome-hidden #diag{
 /* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
 .pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
-/* ===== Space（A ⇄ B）の切替対象トグル =====
-   A ⇄ B に対するオプションでしかないので、ピルにすると主張が強すぎて
-   かえって「Space の設定」だと読み取りにくい。枠も塗りも持たせず、
-   現在の対象を示す小さな文字と、その下のスイッチだけにする。
-   ラベルは 音声 / 音声&映像 で幅が変わるので、長い方で幅を固定して
-   切り替えても隣のボタンが動かないようにする。 */
-#linkVideo{
+/* ===== モードのスイッチ =====
+   「同時再生」と「Space の切替対象」の2つ。どちらも他のボタンの
+   挙動そのものを変える設定で、音源や操作そのものではない。ピルに
+   すると隣の MAIN / VC-A / VC-B と並列に見えて役割を取り違えるので、
+   枠も塗りも持たない小さなスイッチにして、押すものと区別する。
+   ラベルの幅は長い方（音声&映像）で固定し、切り替えても隣が
+   動かないようにする。2つは同じ幅に揃える。 */
+.switch{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
   background:none;border:0;padding:2px 4px;min-width:var(--switchW);cursor:pointer;
   font:inherit;font-size:.62rem;font-weight:700;letter-spacing:.02em;line-height:1;
   color:var(--sub);transition:color .12s;flex-shrink:0;
 }
-#linkVideo:hover{color:var(--text);}
+.switch:hover{color:var(--text);}
 /* 枠を持たない要素なので、UA 既定のリングは大きな箱に見えてしまう */
-#linkVideo:focus-visible{outline:2px solid var(--a);outline-offset:1px;border-radius:6px;}
-#linkVideoLabel{white-space:nowrap;}
+.switch:focus-visible{outline:2px solid var(--a);outline-offset:1px;border-radius:6px;}
+.switch > span:first-child{white-space:nowrap;}
+/* 混ぜる相手がいないときなど */
+.switch:disabled{opacity:.3;cursor:default;}
+.switch:disabled:hover{color:var(--sub);}
 .switchTrack{
   position:relative;display:block;width:30px;height:14px;border-radius:999px;
   background:#2b3340;transition:background .12s;
@@ -355,8 +359,8 @@ body.chrome-hidden #diag{
   position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
   background:var(--sub);transition:transform .12s,background .12s;
 }
-#linkVideo[aria-checked="true"] .switchTrack{background:var(--ok);}
-#linkVideo[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
+.switch[aria-checked="true"] .switchTrack{background:var(--ok);}
+.switch[aria-checked="true"] .switchKnob{transform:translateX(16px);background:#04060a;}
 
 /* 高さは MAIN / VC-A / VC-B のボタンに揃える。SPACE の添え字は行を
    増やさないよう、ピルの <kbd> と同じように後ろへ並べる */

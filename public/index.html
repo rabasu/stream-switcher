@@ -166,7 +166,7 @@
     <button class="pill srcBtn" data-aud="a" data-k="a">VC-A<kbd>W</kbd></button>
     <button class="pill srcBtn" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
     <div class="barTail" id="audioTail">
-      <button class="pill" id="mix" data-k="both" aria-pressed="false" title="同時再生 OFF — 音声ボタンは1本に切り替えます (R)">同時<kbd>R</kbd></button>
+      <button type="button" class="switch" id="mix" role="switch" aria-checked="false" aria-label="同時再生" title="同時再生 OFF — 音声ボタンは1本に切り替えます (R)"><span>同時</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
       <div id="swapWrap">
         <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)"><span id="swapLabel">A ⇄ B</span><small>SPACE</small></button>
@@ -179,7 +179,7 @@
         </select>
         <span class="swapCaret" aria-hidden="true">▾</span>
       </div>
-      <button type="button" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
+      <button type="button" class="switch" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <div class="row" id="volWrap">
         <button type="button" id="volMute" title="ミュート (M)" aria-label="ミュート">
           <svg class="iconVolOn" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
