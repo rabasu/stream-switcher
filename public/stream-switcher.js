@@ -466,7 +466,7 @@ function renderVolume(){
    Space で行き来する2本
    既定は VC-A ⇄ VC-B だが、MAIN と VC-A の2本だけ読み込んで使う
    こともあるので、どの2本を往復するかを選べるようにする。選択は
-   A ⇄ B ボタンの右端のカレット（透明な <select>）から。
+   A ⇄ B ボタンの右端のカレットから、自前のメニュー（.swapMenu）で行う。
    片方でも読み込んでいない組み合わせは選べない。
    ================================================================ */
 const SWAP_PAIRS = [
@@ -482,24 +482,67 @@ function currentPair(){
   return p && pairReady(p) ? p : null;
 }
 function renderSwapPair(){
-  const sel = document.getElementById('swapPair');
-  SWAP_PAIRS.forEach(p => {
-    sel.querySelector('option[value="' + p.id + '"]').disabled = !pairReady(p);
-  });
   // 選んでいた組み合わせが使えなくなったら、使える先頭へ寄せる
   if(!currentPair()){
     const first = SWAP_PAIRS.find(pairReady);
     if(first) swapPairId = first.id;
   }
   const p = currentPair();
-  sel.value = swapPairId;
-  sel.disabled = !p;
   const btn = document.getElementById('swap');
   btn.disabled = !p;
+  document.getElementById('swapCaretBtn').disabled = !p;
   document.getElementById('swapLabel').textContent =
     (p || SWAP_PAIRS.find(x => x.id === swapPairId)).short;
   btn.title = p ? p.full + ' を切り替える (Space)'
                 : '行き来できる配信が2本そろっていません';
+
+  document.querySelectorAll('.swapMenuItem').forEach(item => {
+    const pair = SWAP_PAIRS.find(x => x.id === item.dataset.pair);
+    item.setAttribute('aria-disabled', pairReady(pair) ? 'false' : 'true');
+    item.setAttribute('aria-checked', item.dataset.pair === swapPairId ? 'true' : 'false');
+  });
+  if(!p) closeSwapMenu(false);   // 選べる組み合わせが無くなったら開いたままにしない
+}
+
+/* ================================================================
+   上のメニューの開閉
+   ネイティブの <select> は OS 標準の見た目になってしまうため、他の
+   パネル（診断・ヘルプ）と同じ配色の自前パネルにする。「メニュー
+   ボタン」パターン（role="menu" / menuitemradio）で、開閉・選択・
+   Escape・外側クリックだけを面倒みる。
+   矢印キーでの移動は実装しない。このアプリは Space と矢印キーを
+   画面全体のショートカットとして使っていて、メニューを開いている
+   最中でもそちらが先に音量やシークを動かしてしまうため、Tab と
+   Enter、クリックで選べれば十分と判断した。
+   ================================================================ */
+function swapMenuOpen(){ return !document.getElementById('swapMenu').hidden; }
+function openSwapMenu(){
+  if(document.getElementById('swap').disabled) return;
+  const menu = document.getElementById('swapMenu');
+  menu.hidden = false;
+  document.getElementById('swapCaretBtn').setAttribute('aria-expanded', 'true');
+  document.addEventListener('pointerdown', onSwapMenuOutside, true);
+  document.addEventListener('keydown', onSwapMenuKeydown, true);
+  const current = menu.querySelector('[data-pair="' + swapPairId + '"]');
+  (current || menu.querySelector('.swapMenuItem')).focus();
+}
+function closeSwapMenu(returnFocus){
+  const menu = document.getElementById('swapMenu');
+  if(menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('swapCaretBtn').setAttribute('aria-expanded', 'false');
+  document.removeEventListener('pointerdown', onSwapMenuOutside, true);
+  document.removeEventListener('keydown', onSwapMenuKeydown, true);
+  if(returnFocus) document.getElementById('swapCaretBtn').focus();
+}
+function onSwapMenuOutside(e){
+  if(!document.getElementById('swapWrap').contains(e.target)) closeSwapMenu(false);
+}
+function onSwapMenuKeydown(e){
+  if(e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();            // 全体のショートカット（? のヘルプなど）に渡さない
+  closeSwapMenu(true);
 }
 
 /* Space: 選んだ2本を交互に。組の外（MAIN やミュート）からは1本目に入る。
@@ -507,6 +550,7 @@ function renderSwapPair(){
    にする（MAIN を流しながら VC だけ行き来する使い方のため）。
    Space連動が ON なら映像も同じ配信へ動かす */
 function swapVc(){
+  closeSwapMenu(false);
   const pair = currentPair();
   if(!pair) return;
   const from = pair.keys.find(k => audioKeys.includes(k)) || null;
@@ -1011,12 +1055,18 @@ document.getElementById('swap').addEventListener('click', swapVc);
 document.getElementById('golive').addEventListener('click', goLive);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('linkVideo').addEventListener('click', toggleLinkVideo);
-document.getElementById('swapPair').addEventListener('change', function(){
-  swapPairId = this.value;
-  renderSwapPair();
-  // 選んだあとフォーカスが残ると Space がプルダウンに吸われる
-  this.blur();
-  reclaimFocus();
+document.getElementById('swapCaretBtn').addEventListener('click', () => {
+  swapMenuOpen() ? closeSwapMenu(true) : openSwapMenu();
+});
+document.querySelectorAll('.swapMenuItem').forEach(item => {
+  item.addEventListener('click', () => {
+    if(item.getAttribute('aria-disabled') === 'true') return;
+    swapPairId = item.dataset.pair;
+    renderSwapPair();
+    // メニューを閉じたあとフォーカスが残ると Space がボタンに吸われる
+    closeSwapMenu(false);
+    reclaimFocus();
+  });
 });
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
 document.getElementById('playBtn').addEventListener('click', togglePlay);

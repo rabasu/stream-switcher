@@ -399,21 +399,54 @@ body.chrome-hidden #diag{
 }
 #swap:active{filter:brightness(.92);}
 #swap small{font-size:.6rem;font-weight:700;opacity:.5;letter-spacing:.1em;margin-left:9px;}
-/* 行き来する2本の選択。組み合わせを増やしても表の情報量が増えないよう、
-   ボタンの右端のカレットにだけ透明の <select> を重ねる。
-   カレット以外を押したときは今までどおり切り替わる */
-.swapCaret{
-  position:absolute;right:11px;top:50%;transform:translateY(-50%);
-  color:#4b5563;font-size:1.05rem;line-height:1;pointer-events:none;
-}
-#swapPair{
-  position:absolute;top:0;right:0;width:32px;height:100%;
-  margin:0;padding:0;border:0;opacity:0;cursor:pointer;font:inherit;
-}
-#swapPair:focus-visible ~ .swapCaret{outline:2px solid var(--a);outline-offset:3px;border-radius:3px;}
 /* 2本そろった組み合わせが無いとき */
 #swap:disabled{opacity:.35;box-shadow:none;cursor:default;}
-#swapPair:disabled ~ .swapCaret{opacity:.3;}
+
+/* 行き来する2本を選ぶメニューを開くボタン。#swap と同じ白いピルの
+   右端にだけ重ね、その角だけ丸めて「ここだけ別の操作」だと示す。
+   組み合わせを増やしても表の情報量が増えないよう、ボタン本体の見た目は
+   変えない（押すと今までどおり切り替わる）。 */
+.swapCaret{
+  position:absolute;top:0;right:0;width:32px;height:100%;
+  display:flex;align-items:center;justify-content:center;
+  margin:0;padding:0;border:0;border-radius:0 8px 8px 0;
+  background:none;color:#4b5563;cursor:pointer;transition:background .12s,color .12s;
+}
+.swapCaret:hover{background:rgba(0,0,0,.06);color:#1f2937;}
+.swapCaret[aria-expanded="true"]{background:rgba(0,0,0,.06);color:#1f2937;}
+.swapCaret svg{transition:transform .12s;}
+.swapCaret[aria-expanded="true"] svg{transform:rotate(180deg);}
+.swapCaret:focus-visible{outline:2px solid var(--a);outline-offset:-2px;}
+.swapCaret:disabled{opacity:.35;pointer-events:none;}
+
+/* メニュー本体。ネイティブの <select> は OS 標準の見た目になって
+   しまうため、他のパネル（診断・ヘルプ）と同じ配色の自前パネルにする。
+   #swap の真上、キャレットの右端に揃えて上向きに開く
+   （操作バーは画面下端に固定されているため）。 */
+.swapMenu{
+  position:absolute;right:0;bottom:calc(100% + 8px);z-index:1;
+  min-width:180px;padding:6px;border-radius:10px;
+  background:var(--panel);border:1px solid var(--line);
+  box-shadow:0 10px 28px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.06);
+}
+.swapMenu[hidden]{display:none;}
+.swapMenuItem{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  width:100%;padding:9px 10px;border:0;border-radius:6px;
+  background:none;color:var(--text);font:inherit;font-size:.85rem;font-weight:600;
+  cursor:pointer;text-align:left;white-space:nowrap;
+}
+.swapMenuItem:hover:not([aria-disabled="true"]),
+.swapMenuItem:focus-visible{background:rgba(255,255,255,.08);}
+.swapMenuItem:focus-visible{outline:none;}
+/* 選択中は、他のボタンの「on」表現と揃えて緑のドットで示す */
+.swapMenuItem::after{
+  content:'';width:7px;height:7px;border-radius:50%;background:var(--ok);
+  flex-shrink:0;opacity:0;
+}
+.swapMenuItem[aria-checked="true"]{color:var(--ok);}
+.swapMenuItem[aria-checked="true"]::after{opacity:1;}
+.swapMenuItem[aria-disabled="true"]{color:var(--sub);opacity:.4;cursor:default;}
 
 /* ================================================================
    下段の中央寄せ

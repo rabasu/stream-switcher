@@ -177,14 +177,16 @@
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
       <div id="swapWrap">
         <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)"><span id="swapLabel">A ⇄ B</span><small>SPACE</small></button>
-        <!-- ボタン右端のカレットにだけ重ねた透明のプルダウン。
-             他の場所は今までどおり押すと切り替わる -->
-        <select id="swapPair" aria-label="Space で行き来する2本">
-          <option value="main-a">MAIN ⇄ VC-A</option>
-          <option value="main-b">MAIN ⇄ VC-B</option>
-          <option value="a-b">VC-A ⇄ VC-B</option>
-        </select>
-        <span class="swapCaret" aria-hidden="true">▾</span>
+        <!-- ボタン右端だけ、行き来する2本を選ぶ自前のメニューを開く。
+             それ以外を押したときは今までどおり切り替わる -->
+        <button type="button" id="swapCaretBtn" class="swapCaret" aria-haspopup="true" aria-expanded="false" aria-label="Space で行き来する2本を選ぶ">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>
+        </button>
+        <div id="swapMenu" class="swapMenu" role="menu" aria-label="Space で行き来する2本" hidden>
+          <button type="button" class="swapMenuItem" role="menuitemradio" data-pair="main-a">MAIN ⇄ VC-A</button>
+          <button type="button" class="swapMenuItem" role="menuitemradio" data-pair="main-b">MAIN ⇄ VC-B</button>
+          <button type="button" class="swapMenuItem" role="menuitemradio" data-pair="a-b">VC-A ⇄ VC-B</button>
+        </div>
       </div>
       <button type="button" class="switch" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <div class="row" id="volWrap">
