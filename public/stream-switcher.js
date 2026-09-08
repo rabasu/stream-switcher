@@ -340,7 +340,7 @@ function renderAvailability(){
 }
 
 const SRC_LABEL = {main:'MAIN', a:'VC-A', b:'VC-B'};
-const SRC_COLOR = {main:'#8b9aa8', a:'#4ea8de', b:'#f2a65a'};
+const SRC_COLOR = {main:'#3ddc84', a:'#4ea8de', b:'#f2a65a'};
 
 /* 鳴らす配信を集合で受け取る。読み込んでいないものは落とし、
    KEYS の並びに揃えてから配る（表示の順を安定させるため） */

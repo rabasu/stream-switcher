@@ -11,7 +11,11 @@
   --switchW:62px;
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
-  --a:#4ea8de; --b:#f2a65a; --main:#8b9aa8; --live:#e5484d; --ok:#7bc47f;
+  /* MAIN の識別色。以前は灰色（#8b9aa8）で、選択中でも disabled に
+     見えてしまっていた。--ok（同時再生・省帯域などの汎用の「on」色）
+     とは色相・彩度をずらし、A・B と並んでも別の配信だと分かるように
+     はっきりした緑にする */
+  --a:#4ea8de; --b:#f2a65a; --main:#3ddc84; --live:#e5484d; --ok:#7bc47f;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
