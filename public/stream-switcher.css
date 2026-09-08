@@ -184,7 +184,7 @@ body:not(.touch) .touchOnly{display:none;}
    PC 側で行う前提なので、オペレーター向けの操作は出さない。
    ================================================================ */
 /* 音声 MAIN/VC-A/VC-B が1タップで押せるので A⇄B は冗長 */
-body.touch #swap,
+body.touch #swapWrap,
 /* A⇄B（Space）の切替対象を選ぶトグル。A⇄B が無ければ一緒に不要 */
 body.touch #linkVideo,
 body.touch [data-aud="both"],
@@ -323,6 +323,11 @@ body.chrome-hidden #diag{
 .pill.on[data-k="b"]{background:var(--b);border-color:var(--b);}
 .pill.on[data-k="none"]{background:var(--live);border-color:var(--live);color:#fff;}
 .pill.on[data-k="both"]{background:var(--ok);border-color:var(--ok);}
+/* 読み込んでいない配信のボタン。押しても何も起きないので、
+   押せないことを見た目でも示す（ホバーの反応も止める） */
+.pill:disabled{opacity:.3;cursor:default;}
+.pill:disabled:hover{border-color:var(--line);color:var(--sub);}
+.trim button:disabled{opacity:.3;cursor:default;}
 /* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
 .pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
@@ -355,15 +360,31 @@ body.chrome-hidden #diag{
 
 /* 高さは MAIN / VC-A / VC-B のボタンに揃える。SPACE の添え字は行を
    増やさないよう、ピルの <kbd> と同じように後ろへ並べる */
+#swapWrap{position:relative;display:flex;align-items:center;flex-shrink:0;}
 #swap{
   background:#fff;color:#04060a;border:none;border-radius:8px;
-  min-width:var(--swapW);padding:8px 22px;font-size:.95rem;font-weight:800;
+  width:var(--swapW);padding:8px 30px;font-size:.95rem;font-weight:800;
   cursor:pointer;letter-spacing:.02em;
   box-shadow:0 0 0 1px rgba(255,255,255,.15),0 4px 16px rgba(0,0,0,.4);
-  line-height:1.1;flex-shrink:0;
+  line-height:1.1;
 }
 #swap:active{filter:brightness(.92);}
 #swap small{font-size:.6rem;font-weight:700;opacity:.5;letter-spacing:.1em;margin-left:9px;}
+/* 行き来する2本の選択。組み合わせを増やしても表の情報量が増えないよう、
+   ボタンの右端のカレットにだけ透明の <select> を重ねる。
+   カレット以外を押したときは今までどおり切り替わる */
+.swapCaret{
+  position:absolute;right:11px;top:50%;transform:translateY(-50%);
+  color:#7a8494;font-size:.62rem;pointer-events:none;
+}
+#swapPair{
+  position:absolute;top:0;right:0;width:32px;height:100%;
+  margin:0;padding:0;border:0;opacity:0;cursor:pointer;font:inherit;
+}
+#swapPair:focus-visible ~ .swapCaret{outline:2px solid var(--a);outline-offset:3px;border-radius:3px;}
+/* 2本そろった組み合わせが無いとき */
+#swap:disabled{opacity:.35;box-shadow:none;cursor:default;}
+#swapPair:disabled ~ .swapCaret{opacity:.3;}
 
 /* ================================================================
    下段の中央寄せ
@@ -379,13 +400,13 @@ body.chrome-hidden #diag{
    ================================================================ */
 @media (min-width:1100px){
   #audioTail{position:relative;}
-  #swap,#linkVideo,#volWrap{position:absolute;top:50%;}
+  #swapWrap,#linkVideo,#volWrap{position:absolute;top:50%;}
   /* A ⇄ B の中心を画面中央に。横向きスマホ用の min-width が後ろにあり、
      幅が変わると右隣のスイッチと重なるので詳細度を上げて押さえる */
-  #audioTail > #swap{
+  #audioTail > #swapWrap{
     right:calc(50vw - var(--barPadX));transform:translate(50%,-50%);
-    min-width:var(--swapW);
   }
+  #audioTail > #swapWrap > #swap{width:var(--swapW);}
   /* その右隣。A ⇄ B の右端から 10px 空ける */
   #linkVideo{
     right:calc(50vw - var(--barPadX) - var(--swapW)/2 - 10px - var(--switchW)/2);
@@ -624,7 +645,8 @@ body.paused #playBtn .iconPlay{display:block;}
   #offsetLabel{min-width:4.4em;font-size:.75rem;}
   #golive{padding:8px 10px;gap:5px;}
   #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}
-  #swap{flex:1 1 60%;min-width:0;order:1;padding:10px;font-size:.9rem;}
+  #swapWrap{flex:1 1 60%;min-width:0;order:1;}
+  #swapWrap > #swap{width:100%;padding:10px 30px;font-size:.9rem;}
   /* 折り返しても A ⇄ B の隣に居させる（#swap と同じ order） */
   #linkVideo{order:1;}
   #toggleMore{margin-left:0;order:2;flex:0 1 auto;}
@@ -654,7 +676,8 @@ body.paused #playBtn .iconPlay{display:block;}
   .barGrid{grid-template-columns:2em repeat(3,5.6em) minmax(0,1fr);}
   .barTail{grid-column:auto;}
   #audioTail > .pill{flex:0 1 auto;}
-  #swap{flex:0 1 auto;order:0;min-width:120px;}
+  #swapWrap{flex:0 1 auto;order:0;}
+  #swapWrap > #swap{width:auto;min-width:120px;}
   #volWrap{flex:0 1 auto;order:0;}
   #vol{width:90px;flex:0 0 auto;}
   #toggleMore{margin-left:auto;order:0;}
@@ -665,7 +688,8 @@ body.paused #playBtn .iconPlay{display:block;}
   #bar{padding-top:10px;gap:8px;}
   .barGrid{row-gap:6px;}
   .barGrid > .srcBtn{padding:8px 4px;}
-  #audioTail > .pill,#swap{padding:8px;}
+  #audioTail > .pill{padding:8px;}
+  #swapWrap > #swap{padding:8px 28px;}
   /* 高さが無い。音声の行が色で現在値を示すので重複表示は落とす */
   #nowAudio{display:none;}
   /* 再生中は上メニューを出さない。下メニューと衝突する上に映像を隠すため、

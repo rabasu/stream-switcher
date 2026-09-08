@@ -154,6 +154,7 @@ function build(ids){
       }
     });
   });
+  renderAvailability();             // 読み込まなかった配信のボタンを落とす
   document.getElementById('splash').classList.add('gone');
   placeSetup();                     // カードから固定ヘッダーの位置へ戻す
   applyOrientationMode();           // 縦=入力欄を常設 / 横=映像優先で出さない
@@ -288,7 +289,27 @@ function fadeTo(k, target, instant){
   }, 20);
 }
 
+/* ================================================================
+   読み込んでいる配信だけを選べるようにする
+   URL を入れていない配信を選ぶと、映像は動かないのに音声だけ
+   無音のほうへ移ってしまう。入口の applyAudio / setVideo で弾き、
+   ボタンにも disabled を付けて押せないことを見た目でも示す。
+   ================================================================ */
+function audioAvailable(src){
+  if(src === 'none') return true;
+  if(src === 'both') return !!(players.a && players.b);
+  return !!players[src];
+}
+function renderAvailability(){
+  document.querySelectorAll('[data-vid]').forEach(b => b.disabled = !players[b.dataset.vid]);
+  document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !audioAvailable(b.dataset.aud));
+  // ズレ微調整も、無い配信の分は動かしても意味がない
+  document.querySelectorAll('[data-trim]').forEach(b => b.disabled = !players[b.dataset.trim]);
+  renderSwapPair();
+}
+
 function applyAudio(src, instant){
+  if(!audioAvailable(src)) return;   // 無い配信へは移らない（移ると無音になる）
   audioSrc = src;
   const on = src === 'both' ? ['a','b'] : (src === 'none' ? [] : [src]);
   KEYS.forEach(k => fadeTo(k, on.includes(k) ? masterVol : 0, instant));
@@ -346,12 +367,54 @@ function renderVolume(){
   btn.setAttribute('aria-label', m ? 'ミュート解除' : 'ミュート');
 }
 
-/* Space: A ⇄ B。MAIN / ミュート / A+B からは VC-A に入る。
+/* ================================================================
+   Space で行き来する2本
+   既定は VC-A ⇄ VC-B だが、MAIN と VC-A の2本だけ読み込んで使う
+   こともあるので、どの2本を往復するかを選べるようにする。選択は
+   A ⇄ B ボタンの右端のカレット（透明な <select>）から。
+   片方でも読み込んでいない組み合わせは選べない。
+   ================================================================ */
+const SWAP_PAIRS = [
+  {id:'main-a', keys:['main','a'], short:'MAIN ⇄ A', full:'MAIN ⇄ VC-A'},
+  {id:'main-b', keys:['main','b'], short:'MAIN ⇄ B', full:'MAIN ⇄ VC-B'},
+  {id:'a-b',    keys:['a','b'],    short:'A ⇄ B',    full:'VC-A ⇄ VC-B'}
+];
+var swapPairId = 'a-b';
+function pairReady(p){ return p.keys.every(k => !!players[k]); }
+/* いま実際に使える組み合わせ。2本そろっていなければ null */
+function currentPair(){
+  const p = SWAP_PAIRS.find(x => x.id === swapPairId);
+  return p && pairReady(p) ? p : null;
+}
+function renderSwapPair(){
+  const sel = document.getElementById('swapPair');
+  SWAP_PAIRS.forEach(p => {
+    sel.querySelector('option[value="' + p.id + '"]').disabled = !pairReady(p);
+  });
+  // 選んでいた組み合わせが使えなくなったら、使える先頭へ寄せる
+  if(!currentPair()){
+    const first = SWAP_PAIRS.find(pairReady);
+    if(first) swapPairId = first.id;
+  }
+  const p = currentPair();
+  sel.value = swapPairId;
+  sel.disabled = !p;
+  const btn = document.getElementById('swap');
+  btn.disabled = !p;
+  document.getElementById('swapLabel').textContent =
+    (p || SWAP_PAIRS.find(x => x.id === swapPairId)).short;
+  btn.title = p ? p.full + ' を切り替える (Space)'
+                : '行き来できる配信が2本そろっていません';
+}
+
+/* Space: 選んだ2本を交互に。組の外（MAIN やミュート）からは1本目に入る。
    Space連動が ON なら映像も同じ配信へ動かす */
 function swapVc(){
+  const pair = currentPair();
+  if(!pair) return;
   audioUnlocked = true;
-  const next = audioSrc === 'a' ? 'b' : 'a';
-  if(linkVideo && players[next]){
+  const next = audioSrc === pair.keys[0] ? pair.keys[1] : pair.keys[0];
+  if(linkVideo){
     suspendEco();                 // 往復で目立つ「切替直後の画質低下」を避ける
     setVideo(next);
   }
@@ -529,7 +592,8 @@ function renderDiag(){
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
-    'Space対象   ' + (linkVideo ? '音声+映像' : '音声のみ')
+    'Space       ' + (currentPair() ? currentPair().short : '—')
+                    + ' / ' + (linkVideo ? '音声+映像' : '音声のみ')
   );
 }
 function toggleDiag(){
@@ -831,6 +895,13 @@ document.getElementById('swap').addEventListener('click', swapVc);
 document.getElementById('golive').addEventListener('click', goLive);
 document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('linkVideo').addEventListener('click', toggleLinkVideo);
+document.getElementById('swapPair').addEventListener('change', function(){
+  swapPairId = this.value;
+  renderSwapPair();
+  // 選んだあとフォーカスが残ると Space がプルダウンに吸われる
+  this.blur();
+  reclaimFocus();
+});
 document.getElementById('diagbtn').addEventListener('click', toggleDiag);
 document.getElementById('playBtn').addEventListener('click', togglePlay);
 document.getElementById('centerBtn').addEventListener('click', () => {
@@ -868,6 +939,7 @@ document.getElementById('volMute').addEventListener('click', toggleMute);
 setVolume(100);
 renderEco();
 renderLinkVideo();
+renderAvailability();
 
 const scrubEl = document.getElementById('scrub');
 scrubEl.addEventListener('input', () => { scrubbing = true; renderTransport(); });

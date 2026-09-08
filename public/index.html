@@ -168,7 +168,17 @@
     <div class="barTail" id="audioTail">
       <button class="pill" data-aud="both" data-k="both">同時<kbd>R</kbd></button>
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
-      <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)">A ⇄ B<small>SPACE</small></button>
+      <div id="swapWrap">
+        <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)"><span id="swapLabel">A ⇄ B</span><small>SPACE</small></button>
+        <!-- ボタン右端のカレットにだけ重ねた透明のプルダウン。
+             他の場所は今までどおり押すと切り替わる -->
+        <select id="swapPair" aria-label="Space で行き来する2本">
+          <option value="main-a">MAIN ⇄ VC-A</option>
+          <option value="main-b">MAIN ⇄ VC-B</option>
+          <option value="a-b">VC-A ⇄ VC-B</option>
+        </select>
+        <span class="swapCaret" aria-hidden="true">▾</span>
+      </div>
       <button type="button" id="linkVideo" role="switch" aria-checked="true" aria-label="Space で映像も切り替える"><span id="linkVideoLabel">音声&amp;映像</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
       <div class="row" id="volWrap">
         <button type="button" id="volMute" title="ミュート (M)" aria-label="ミュート">
@@ -227,9 +237,9 @@
     <h3 class="kbOnly">キーボードショートカット</h3>
     <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
-      <tr><td>Space</td><td>VC-A と VC-B を交互に切り替える。既定では映像と音声の両方が動きます。MAIN やミュートのときは VC-A に入ります</td></tr>
+      <tr><td>Space</td><td>2本を交互に切り替える。既定では映像と音声の両方が動きます。行き来する2本は A ⇄ B ボタン右端の ▾ から選べます（MAIN ⇄ VC-A など）。組の外にいるときは1本目に入ります</td></tr>
       <tr><td>S</td><td>Space で切り替える対象を <b>音声&amp;映像</b> / <b>音声</b> で切り替える（A ⇄ B の右のトグルと同じ）。映像も動かす設定のあいだは、往復のたびに画質が落ちないよう省帯域モードを自動で一時解除します</td></tr>
-      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する</td></tr>
+      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する。読み込んでいない配信は選べません（ボタンも薄く表示されます）</td></tr>
       <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
       <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
@@ -249,7 +259,7 @@
     </table>
     <h3 class="touchOnly">操作方法</h3>
     <table class="touchOnly">
-      <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです</td></tr>
+      <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです。読み込んでいない配信のボタンは薄く表示され、押せません</td></tr>
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます</td></tr>
       <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>
