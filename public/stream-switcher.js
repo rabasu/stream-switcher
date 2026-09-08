@@ -100,16 +100,22 @@ function hideLoading(){
 }
 
 /* ---------- YouTube API ---------- */
-let apiReady = false, pending = null;
+let apiReady = false, pending = null, pendingSound = false;
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
 document.head.appendChild(tag);
-window.onYouTubeIframeAPIReady = () => { apiReady = true; if(pending){ build(pending); pending = null; } };
+window.onYouTubeIframeAPIReady = () => {
+  apiReady = true;
+  if(pending){ build(pending, pendingSound); pending = null; }
+};
 
-function build(ids){
+/* withSound: 読み込むボタン経由。クリック済みでブラウザの自動再生の
+   条件を満たしているので、最初から音を出せる。共有URLから開いたときは
+   ジェスチャーが無いので、音を止めたまま始めてチップで解除してもらう */
+function build(ids, withSound){
   paused = false;
   targetOffset = 0;
-  audioUnlocked = false;          // 再読み込み時は mute 再生で自動再生を通す
+  audioUnlocked = !!withSound;
   resumeEco();                    // 省帯域の一時解除は持ち越さない
   videoSrc = 'main';
   audioKeys = [];                 // 起動は何も選んでいない状態
@@ -166,7 +172,8 @@ function build(ids){
   placeSetup();                     // カードから固定ヘッダーの位置へ戻す
   applyOrientationMode();           // 縦=入力欄を常設 / 横=映像優先で出さない
   setVideo(ids.main ? 'main' : (ids.a ? 'a' : 'b'));
-  applyAudio(audioKeys, true);
+  const firstAudio = withSound ? KEYS.find(k => players[k]) : null;
+  applyAudio(firstAudio ? [firstAudio] : audioKeys, true);
   showChrome();
 }
 
@@ -318,6 +325,7 @@ function renderAvailability(){
   if(loadedCount() < 2 && mixMode) mixMode = false;
   renderMix();
   renderSwapPair();
+  renderUnmuteChip();
 }
 
 const SRC_LABEL = {main:'MAIN', a:'VC-A', b:'VC-B'};
@@ -336,7 +344,15 @@ function applyAudio(keys, instant){
   });
 
   renderNowAudio();
+  renderUnmuteChip();
   renderVolume();
+}
+
+/* 何も選んでいない＝何も鳴らない状態のあいだだけ出す。押せば解除できる。
+   自分でミュートしたとき（選択は残る）は出さない */
+function renderUnmuteChip(){
+  document.getElementById('unmuteChip').hidden =
+    audioKeys.length > 0 || !KEYS.some(k => players[k]);
 }
 
 /* 右上のインジケーター。選択そのものだけでなく音量にも左右されるので、
@@ -895,7 +911,17 @@ function applyOrientationMode(){
   auto ? scheduleHideChrome() : showChrome();
 }
 landscapeMQ.addEventListener('change', applyOrientationMode);
-if(window.ResizeObserver) new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
+/* ミュート解除チップを操作バーの真上に置くための実測値 */
+function syncChromeHeight(){
+  const h = Math.round(document.getElementById('bottomChrome').getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--chromeH', h + 'px');
+}
+syncChromeHeight();
+window.addEventListener('resize', syncChromeHeight);
+if(window.ResizeObserver){
+  new ResizeObserver(syncSetupHeight).observe(document.getElementById('setup'));
+  new ResizeObserver(syncChromeHeight).observe(document.getElementById('bottomChrome'));
+}
 window.addEventListener('resize', syncSetupHeight);
 window.addEventListener('orientationchange', () => setTimeout(syncSetupHeight, 250));
 placeSetup();
@@ -940,8 +966,8 @@ document.getElementById('load').addEventListener('click', () => {
   KEYS.forEach(k => ids[k] = extractId(document.getElementById('u-'+k).value));
   if(!ids.main && !ids.a && !ids.b){ setStatusLine('URLを1つ以上入力してください'); return; }
   showLoading();
-  if(apiReady) build(ids);
-  else pending = ids;
+  if(apiReady) build(ids, true);
+  else { pending = ids; pendingSound = true; }
 });
 document.getElementById('copylink').addEventListener('click', function(){
   const u = new URL(location.href.split('?')[0]);
@@ -1012,6 +1038,10 @@ document.getElementById('vol').addEventListener('input', function(){
   setVolume(v);
 });
 document.getElementById('volMute').addEventListener('click', toggleMute);
+document.getElementById('unmuteChip').addEventListener('click', () => {
+  unmute();
+  reclaimFocus();
+});
 setVolume(100);
 renderEco();
 renderLinkVideo();

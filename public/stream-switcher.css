@@ -3,6 +3,9 @@
   --setupH:96px;
   /* #bar の左右パディング。下段の中央寄せがこの値を基準にする */
   --barPadX:18px;
+  /* #bottomChrome の実測高さ。JS が更新する。ミュート解除チップを
+     操作バーの真上へ置くために使う */
+  --chromeH:120px;
   /* A ⇄ B と切替対象スイッチの幅。中央からのオフセット計算にも使う */
   --swapW:200px;
   --switchW:62px;
@@ -29,6 +32,28 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 
 /* iframeにフォーカスを奪われないようクリックを遮断 */
 #shield{position:fixed;inset:0;z-index:5;background:transparent;}
+
+/* ===== ミュート解除チップ =====
+   共有URLから開くと、自動再生を通すために音を止めた状態で始まる。
+   「なぜ鳴らないのか」を伝えるだけでなく、押せばその場で鳴るように
+   する。見逃すと手がかりが残らないので、音声を選ぶまで消さない。
+   操作バーの自動非表示とは独立させたいので #bottomChrome の外に置き、
+   実測した高さ（--chromeH）ぶんだけ持ち上げる。 */
+#unmuteChip{
+  position:fixed;left:50%;bottom:calc(var(--chromeH) + 16px);
+  transform:translateX(-50%);z-index:18;
+  display:flex;align-items:center;gap:8px;
+  padding:10px 18px;border:none;border-radius:999px;cursor:pointer;
+  background:rgba(7,9,12,.86);color:#fff;backdrop-filter:blur(4px);
+  font:inherit;font-size:.82rem;font-weight:700;letter-spacing:.02em;
+  box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.12);
+  transition:background .15s;
+}
+#unmuteChip[hidden]{display:none;}
+#unmuteChip:hover{background:rgba(7,9,12,.96);}
+#unmuteChip .chipIcon{color:var(--live);flex-shrink:0;}
+/* 導入画面ではまだ再生していない */
+#splash:not(.gone) ~ #unmuteChip{display:none;}
 
 /* ===== 導入画面 ===== */
 #splash{
