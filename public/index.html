@@ -166,7 +166,7 @@
     <button class="pill srcBtn" data-aud="a" data-k="a">VC-A<kbd>W</kbd></button>
     <button class="pill srcBtn" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
     <div class="barTail" id="audioTail">
-      <button class="pill" data-aud="both" data-k="both">同時<kbd>R</kbd></button>
+      <button class="pill" id="mix" data-k="both" aria-pressed="false" title="同時再生 OFF — 音声ボタンは1本に切り替えます (R)">同時<kbd>R</kbd></button>
       <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
       <div id="swapWrap">
         <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)"><span id="swapLabel">A ⇄ B</span><small>SPACE</small></button>
@@ -237,10 +237,10 @@
     <h3 class="kbOnly">キーボードショートカット</h3>
     <table class="kbOnly">
       <tr><th colspan="2">本番中に使うもの</th></tr>
-      <tr><td>Space</td><td>2本を交互に切り替える。既定では映像と音声の両方が動きます。行き来する2本は A ⇄ B ボタン右端の ▾ から選べます（MAIN ⇄ VC-A など）。組の外にいるときは1本目に入ります</td></tr>
+      <tr><td>Space</td><td>2本を交互に切り替える。既定では映像と音声の両方が動きます。行き来する2本は A ⇄ B ボタン右端の ▾ から選べます（MAIN ⇄ VC-A など）。組の外にいるときは1本目に入ります。同時再生中は、組のうち鳴っているほうだけが入れ替わり、他はそのまま鳴り続けます</td></tr>
       <tr><td>S</td><td>Space で切り替える対象を <b>音声&amp;映像</b> / <b>音声</b> で切り替える（A ⇄ B の右のトグルと同じ）。映像も動かす設定のあいだは、往復のたびに画質が落ちないよう省帯域モードを自動で一時解除します</td></tr>
-      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B に直接指定する。読み込んでいない配信は選べません（ボタンも薄く表示されます）</td></tr>
-      <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります</td></tr>
+      <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B にする。同時再生が ON のときは、押すたびに足す / 外すになります。読み込んでいない配信は選べません（ボタンも薄く表示されます）</td></tr>
+      <tr><td>M</td><td>ミュート / 解除。解除すると直前の音声と音量に戻ります（同時再生していた組み合わせも戻ります）</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
       <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
       <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）</td></tr>
@@ -251,7 +251,7 @@
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
 
       <tr><th colspan="2">画面と調整</th></tr>
-      <tr><td>R</td><td>VC-A と VC-B を同時に流す</td></tr>
+      <tr><td>R</td><td>同時再生のオン / オフ。オンのあいだは音声ボタンと Q/W/E が「足す / 外す」になり、最大3本まで混ぜられます（MAIN + VC-A など）。最後の1本は外せません（消すときは M）</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
       <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します。Space で映像も切り替えて往復している間は自動で一時解除し、切替直後の画質低下を避けます</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>

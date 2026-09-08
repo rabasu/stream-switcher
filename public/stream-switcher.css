@@ -187,7 +187,7 @@ body:not(.touch) .touchOnly{display:none;}
 body.touch #swapWrap,
 /* A⇄B（Space）の切替対象を選ぶトグル。A⇄B が無ければ一緒に不要 */
 body.touch #linkVideo,
-body.touch [data-aud="both"],
+body.touch #mix,
 /* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
 body.touch #volWrap,
 /* スクラブバーがあるので不要 */
