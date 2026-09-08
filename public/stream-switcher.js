@@ -13,7 +13,6 @@ var muted = false;
    ミュート解除チップを出すかどうかの判定に使う。unmute() で消える */
 var pendingUnmute = false;
 var mixMode = false;              // 同時再生（複数を混ぜる）モード
-var ecoMode = true;
 var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
 var diagOn = false;
 
@@ -23,6 +22,12 @@ var diagOn = false;
    無視する (3) iPhone に要素全画面が無い、の3点でUIを変える。
    ================================================================ */
 const isTouch = matchMedia('(hover:none) and (pointer:coarse)').matches;
+/* 省帯域は元々モバイル回線の通信量対策。PC は大抵ワイヤード / 安定
+   Wi-Fi で3本同時でも問題になりにくく、むしろ切替直後にぼやける方が
+   気になるため、既定は「タッチ端末だけ ON」にする（ボタン自体、
+   タッチ端末では常に ON 固定で表示すらしない）。PC でも会場Wi-Fiや
+   テザリング利用など通信量が気になる場合は手動で ON にできる */
+var ecoMode = isTouch;
 const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) ||
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 function fsSupported(){
