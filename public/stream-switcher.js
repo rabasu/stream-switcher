@@ -6,6 +6,9 @@ let videoSrc = 'main';
 /* 鳴らしている配信。KEYS の並びで持つ。空 = ミュート。
    同時再生モードでは最大3本まで入る */
 let audioKeys = [];
+/* ミュート（音量0）。鳴らす配信の選択とは独立させる。選択を空にして
+   しまうと、音量を戻したとき何が鳴るのかが画面から分からなくなる */
+var muted = false;
 var mixMode = false;              // 同時再生（複数を混ぜる）モード
 var ecoMode = true;
 var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
@@ -109,7 +112,8 @@ function build(ids){
   audioUnlocked = false;          // 再読み込み時は mute 再生で自動再生を通す
   resumeEco();                    // 省帯域の一時解除は持ち越さない
   videoSrc = 'main';
-  audioKeys = [];                 // 起動はミュート。赤いミュートボタンで分かる
+  audioKeys = [];                 // 起動は何も選んでいない状態
+  muted = false;
   KEYS.forEach(k => {
     if(players[k]){ players[k].destroy(); players[k] = null; }
     ready[k] = false;
@@ -323,22 +327,31 @@ const SRC_COLOR = {main:'#8b9aa8', a:'#4ea8de', b:'#f2a65a'};
    KEYS の並びに揃えてから配る（表示の順を安定させるため） */
 function applyAudio(keys, instant){
   audioKeys = KEYS.filter(k => players[k] && keys.includes(k));
-  KEYS.forEach(k => fadeTo(k, audioKeys.includes(k) ? masterVol : 0, instant));
+  KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? masterVol : 0, instant));
 
+  // 選択の点灯はミュート中も保つ。「いま音量を戻したら何が鳴るか」を残す
   document.querySelectorAll('[data-aud]').forEach(b => {
     const k = b.dataset.aud;
-    b.classList.toggle('on', k === 'none' ? audioKeys.length === 0 : audioKeys.includes(k));
+    b.classList.toggle('on', k === 'none' ? muted : audioKeys.includes(k));
   });
 
+  renderNowAudio();
+  renderVolume();
+}
+
+/* 右上のインジケーター。選択そのものだけでなく音量にも左右されるので、
+   音量を動かしたときにも描き直す */
+function renderNowAudio(){
   const n = audioKeys.length;
   document.getElementById('audioLabel').textContent =
     n === 0 ? 'ミュート'
     : n === 1 ? SRC_LABEL[audioKeys[0]] + ' 音声'
     : audioKeys.map(k => SRC_LABEL[k]).join(' + ');
+  // 選んでいても鳴っていない（ミュート中 / 音量0）ときは、赤い点で点滅なし
+  const live = n > 0 && !isMuted();
   const dot = document.querySelector('#nowAudio .dot');
-  dot.style.background = n === 0 ? '#e5484d' : (n === 1 ? SRC_COLOR[audioKeys[0]] : '#7bc47f');
-  dot.classList.toggle('live', n > 0);
-  renderVolume();
+  dot.style.background = !live ? '#e5484d' : (n === 1 ? SRC_COLOR[audioKeys[0]] : '#7bc47f');
+  dot.classList.toggle('live', live);
 }
 
 /* ================================================================
@@ -377,32 +390,33 @@ function toggleAudioKey(k){
 /* ================================================================
    ミュート
    音量バーの根元のスピーカーが担当する（YouTube などと同じ位置）。
-   押すとバーが最小になりミュート、もう一度押すと元の音声に戻る。
-   ミュートは音量を 0 にするのではなく鳴らす配信を空にするので、
-   解除したときに元の音量と組み合わせへそのまま戻る。
+   押すとバーが最小になりミュート、もう一度押すと元の音量に戻る。
+   音量バーと一体の操作なので、止めるのは音量だけにして音声の選択は
+   触らない。選択を消してしまうと、音量を戻したときに何が鳴るのかが
+   画面から読み取れなくなる。
    ================================================================ */
-let preMuteKeys = null;
-function isMuted(){ return audioKeys.length === 0 || masterVol === 0; }
+function isMuted(){ return muted || masterVol === 0 || audioKeys.length === 0; }
 function muteAll(){
-  if(audioKeys.length) preMuteKeys = audioKeys.slice();
-  applyAudio([]);
+  muted = true;
+  applyAudio(audioKeys);          // 選択はそのまま。音量だけ落とす
 }
 function unmute(){
   audioUnlocked = true;
-  let keys = (preMuteKeys || []).filter(k => players[k]);
-  if(!keys.length){
-    const first = KEYS.find(k => players[k]);
-    keys = first ? [first] : [];
-  }
-  preMuteKeys = null;
+  muted = false;
   if(masterVol === 0) setVolume(100);
-  applyAudio(keys);
+  // まだ何も選んでいなければ、読み込んでいる先頭を鳴らす
+  if(!audioKeys.length){
+    const first = KEYS.find(k => players[k]);
+    applyAudio(first ? [first] : []);
+  }else{
+    applyAudio(audioKeys);
+  }
 }
 function toggleMute(){ isMuted() ? unmute() : muteAll(); }
 
 /* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
 function renderVolume(){
-  const shown = audioKeys.length === 0 ? 0 : masterVol;
+  const shown = (muted || audioKeys.length === 0) ? 0 : masterVol;
   const el = document.getElementById('vol');
   if(el.value != shown) el.value = shown;
   el.style.background =
@@ -489,9 +503,10 @@ function setVolume(v, silent){
     clearInterval(fades[k]);
     try{
       p.setVolume(masterVol);
-      (masterVol > 0 && canUnmute()) ? p.unMute() : p.mute();
+      (masterVol > 0 && !muted && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
   });
+  renderNowAudio();
   renderVolume();
 }
 
@@ -650,7 +665,8 @@ function renderDiag(){
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
-    '音声        ' + (audioKeys.join(' + ') || 'ミュート')
+    '音声        ' + (audioKeys.join(' + ') || '選択なし')
+                    + (muted ? '（ミュート）' : '')
                     + (mixMode ? '（同時再生 ON）' : '') + '\n',
     'Space       ' + (currentPair() ? currentPair().short : '—')
                     + ' / ' + (linkVideo ? '音声+映像' : '音声のみ')
@@ -992,7 +1008,7 @@ document.getElementById('vol').addEventListener('input', function(){
   // unmute() は renderVolume() でバーを描き直すので、値は先に控えておく
   const v = parseFloat(this.value);
   // ミュート中にバーを動かしたら鳴らす（動かしたのに無音、を避ける）
-  if(v > 0 && audioKeys.length === 0) unmute();
+  if(v > 0 && isMuted()) unmute();
   setVolume(v);
 });
 document.getElementById('volMute').addEventListener('click', toggleMute);
