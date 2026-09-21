@@ -174,7 +174,6 @@
     <button class="pill srcBtn" data-aud="b" data-k="b">VC-B<kbd>E</kbd></button>
     <div class="barTail" id="audioTail">
       <button type="button" class="switch" id="mix" role="switch" aria-checked="false" aria-label="同時再生" title="同時再生 OFF — 音声ボタンは1本に切り替えます (R)"><span>同時再生</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
-      <button class="pill" data-aud="none" data-k="none" aria-label="ミュート"><span class="pillText">ミュート</span><svg class="pillIcon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3-2.7-2.7 1.4-1.4 2.7 2.7 2.8-2.7 1.4 1.4-2.7 2.7 2.7 2.8-1.4 1.4-2.8-2.7-2.7 2.7-1.4-1.4L16.5 12z"/></svg><kbd>M</kbd></button>
       <div id="swapWrap">
         <button id="swap" title="VC-A ⇄ VC-B を切り替える (Space)"><span id="swapLabel">A ⇄ B</span><small>SPACE</small></button>
         <!-- ボタン右端だけ、行き来する2本を選ぶ自前のメニューを開く。
@@ -269,6 +268,8 @@
     <h3 class="touchOnly">操作方法</h3>
     <table class="touchOnly">
       <tr><td>映像と音声</td><td>別々に切り替わります。映像の行を押しても音声はそのまま、音声の行を押しても映像はそのままです。読み込んでいない配信のボタンは薄く表示され、押せません</td></tr>
+      <tr><td>同時再生</td><td>音声の行の右端にあるスイッチです。ONにすると音声ボタンが「切り替え」から「足す / 外す」に変わり、最大3本を混ぜて同時に聴けます（MAIN + VC-A など）。最後の1本は外せません。OFFに戻すと、そのとき鳴っている先頭の1本に絞られます。配信が1本だけのときは押せません</td></tr>
+      <tr><td>消音</td><td>端末の音量ボタンで下げてください</td></tr>
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます</td></tr>
       <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>

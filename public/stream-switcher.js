@@ -329,11 +329,7 @@ function fadeTo(k, target, instant){
 function loadedCount(){ return KEYS.filter(k => players[k]).length; }
 function renderAvailability(){
   document.querySelectorAll('[data-vid]').forEach(b => b.disabled = !players[b.dataset.vid]);
-  document.querySelectorAll('[data-aud]').forEach(b => {
-    const k = b.dataset.aud;
-    // ミュートは配信が1本でもあれば押せる
-    b.disabled = k === 'none' ? loadedCount() === 0 : !players[k];
-  });
+  document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !players[b.dataset.aud]);
   // ズレ微調整も、無い配信の分は動かしても意味がない
   document.querySelectorAll('[data-trim]').forEach(b => b.disabled = !players[b.dataset.trim]);
   // 同時再生は混ぜる相手が要る
@@ -354,10 +350,8 @@ function applyAudio(keys, instant){
   KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? masterVol : 0, instant));
 
   // 選択の点灯はミュート中も保つ。「いま音量を戻したら何が鳴るか」を残す
-  document.querySelectorAll('[data-aud]').forEach(b => {
-    const k = b.dataset.aud;
-    b.classList.toggle('on', k === 'none' ? muted : audioKeys.includes(k));
-  });
+  document.querySelectorAll('[data-aud]').forEach(
+    b => b.classList.toggle('on', audioKeys.includes(b.dataset.aud)));
 
   renderNowAudio();
   renderUnmuteChip();
@@ -393,7 +387,9 @@ function renderNowAudio(){
    モードを ON にすると、音声ボタン（と Q/W/E）が「切り替え」から
    「足し引き」に変わる。最大3本。
    全部外して無音になる事故を避けたいので、最後の1本は外せない
-   （消したいときはミュート = M / スピーカーのボタンを使う）。
+   （消したいときは PC ではミュート = M / スピーカーのボタン、
+   スマホでは端末の音量ボタンを使う）。
+   スマホでは音声行の右端（以前のミュートの位置）にこのスイッチを置く。
    ================================================================ */
 function renderMix(){
   const btn = document.getElementById('mix');
@@ -1090,10 +1086,8 @@ document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(t
 document.getElementById('helpclose').addEventListener('click', () => toggleHelp(false));
 
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
-document.querySelectorAll('[data-aud]').forEach(b => b.addEventListener('click', () => {
-  if(b.dataset.aud === 'none'){ toggleMute(); return; }
-  toggleAudioKey(b.dataset.aud);
-}));
+document.querySelectorAll('[data-aud]').forEach(
+  b => b.addEventListener('click', () => toggleAudioKey(b.dataset.aud)));
 document.getElementById('mix').addEventListener('click', toggleMix);
 document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
