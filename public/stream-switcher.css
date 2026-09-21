@@ -216,7 +216,6 @@ body:not(.touch) .touchOnly{display:none;}
 body.touch #swapWrap,
 /* A⇄B（Space）の切替対象を選ぶトグル。A⇄B が無ければ一緒に不要 */
 body.touch #linkVideo,
-body.touch #mix,
 /* 端末の音量ボタンで足りる。iOS では元々 API が効かない */
 body.touch #volWrap,
 /* スクラブバーがあるので不要 */
@@ -252,9 +251,6 @@ body.touch #eco{display:none;}
 #volMute.muted{color:var(--live);}
 #volMute.muted .iconVolOn{display:none;}
 #volMute.muted .iconVolOff{display:block;}
-/* PC はスピーカーがミュートを兼ねるので、音声行のミュートボタンは出さない */
-body:not(.touch) [data-aud="none"]{display:none;}
-
 /* 右端の細い列に入るボタンはアイコンにする */
 .pillIcon{display:none;}
 body.touch .pillIcon{display:block;}
@@ -350,7 +346,6 @@ body.chrome-hidden #diag{
 .pill.on[data-k="main"]{background:var(--main);border-color:var(--main);}
 .pill.on[data-k="a"]{background:var(--a);border-color:var(--a);}
 .pill.on[data-k="b"]{background:var(--b);border-color:var(--b);}
-.pill.on[data-k="none"]{background:var(--live);border-color:var(--live);color:#fff;}
 .pill.on[data-k="both"]{background:var(--ok);border-color:var(--ok);}
 /* 読み込んでいない配信のボタン。押しても何も起きないので、
    押せないことを見た目でも示す（ホバーの反応も止める） */
@@ -688,24 +683,32 @@ body.paused #playBtn .iconPlay{display:block;}
   /* タッチはさらに詰めて 3 行にする。右端に細い列を足し、
      .barTail を display:contents で解いて中身を直接グリッドへ置く。
        1行目  映像 | MAIN | VC-A | VC-B | その他
-       2行目  音声 | MAIN | VC-A | VC-B | ミュート
-       3行目  タイムライン（全幅） */
-  body.touch .barGrid{grid-template-columns:1.9em repeat(3,minmax(0,1fr)) 2.6em;}
+       2行目  音声 | MAIN | VC-A | VC-B | 同時再生
+       3行目  タイムライン（全幅）
+     音声行の右端は以前ミュートだったが、スマホは端末の音量ボタンで
+     足りる。実況とチームVCのように複数を混ぜて聴きたい場面のほうが
+     多いので、同時再生のスイッチを置く。
+     列幅は「同時再生」の4文字が1行で入るぶんだけ広げる */
+  body.touch .barGrid{grid-template-columns:1.9em repeat(3,minmax(0,1fr)) 3.9em;}
   body.touch .barTail{display:contents;}
   body.touch .barGrid > .barLabel,
   body.touch .barGrid > [data-vid]{order:1;}
   body.touch #toggleMore{order:2;}
   body.touch .barGrid > [data-aud]{order:3;}
-  body.touch [data-aud="none"]{order:4;}
+  body.touch #mix{order:4;}
   body.touch #timeline{order:5;grid-column:1 / -1;}
   body.touch .barGrid > [data-aud="main"],
   body.touch .barGrid > [data-aud="a"],
   body.touch .barGrid > [data-aud="b"]{order:3;}
   /* 音声ラベルは2行目の先頭。DOM 順のままだと1行目に来る */
   body.touch #labelAudio{order:3;}
-  body.touch #toggleMore,
-  body.touch [data-aud="none"]{padding:10px 0;justify-self:stretch;display:flex;
+  body.touch #toggleMore{padding:10px 0;justify-self:stretch;display:flex;
     align-items:center;justify-content:center;margin-left:0;}
+  /* 細い列に収める。--switchW（PC の横並び用の固定幅）は効かせない。
+     指で押せるよう、セルいっぱいに広げて縦の余白も取る */
+  body.touch #mix{
+    min-width:0;justify-self:stretch;padding:8px 2px;gap:6px;font-size:.6rem;
+  }
   .barGrid > .srcBtn{padding:10px 4px;font-size:.82rem;}
   #timeline{width:100%;}
   #offsetLabel{min-width:4.4em;font-size:.75rem;}

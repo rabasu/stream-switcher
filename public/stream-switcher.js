@@ -329,11 +329,7 @@ function fadeTo(k, target, instant){
 function loadedCount(){ return KEYS.filter(k => players[k]).length; }
 function renderAvailability(){
   document.querySelectorAll('[data-vid]').forEach(b => b.disabled = !players[b.dataset.vid]);
-  document.querySelectorAll('[data-aud]').forEach(b => {
-    const k = b.dataset.aud;
-    // ミュートは配信が1本でもあれば押せる
-    b.disabled = k === 'none' ? loadedCount() === 0 : !players[k];
-  });
+  document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !players[b.dataset.aud]);
   // ズレ微調整も、無い配信の分は動かしても意味がない
   document.querySelectorAll('[data-trim]').forEach(b => b.disabled = !players[b.dataset.trim]);
   // 同時再生は混ぜる相手が要る
@@ -354,10 +350,8 @@ function applyAudio(keys, instant){
   KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? masterVol : 0, instant));
 
   // 選択の点灯はミュート中も保つ。「いま音量を戻したら何が鳴るか」を残す
-  document.querySelectorAll('[data-aud]').forEach(b => {
-    const k = b.dataset.aud;
-    b.classList.toggle('on', k === 'none' ? muted : audioKeys.includes(k));
-  });
+  document.querySelectorAll('[data-aud]').forEach(
+    b => b.classList.toggle('on', audioKeys.includes(b.dataset.aud)));
 
   renderNowAudio();
   renderUnmuteChip();
@@ -365,8 +359,9 @@ function applyAudio(keys, instant){
 }
 
 /* 共有URLから開いた直後、ジェスチャーが無くて鳴らせないあいだだけ出す。
-   押せば解除できる。unmute() を通ると pendingUnmute が消えるので、
-   そのあとに自分でミュートしても（M / スピーカー）再び出ることはない */
+   チップを押すか、音声を選ぶ（音声ボタン / Q・W・E / Space）と解ける。
+   どちらも pendingUnmute を落とすので、そのあとに自分でミュートしても
+   （M / スピーカー）再び出ることはない */
 function renderUnmuteChip(){
   document.getElementById('unmuteChip').hidden =
     !pendingUnmute || !isMuted() || !KEYS.some(k => players[k]);
@@ -393,7 +388,9 @@ function renderNowAudio(){
    モードを ON にすると、音声ボタン（と Q/W/E）が「切り替え」から
    「足し引き」に変わる。最大3本。
    全部外して無音になる事故を避けたいので、最後の1本は外せない
-   （消したいときはミュート = M / スピーカーのボタンを使う）。
+   （消したいときは PC ではミュート = M / スピーカーのボタン、
+   スマホでは端末の音量ボタンを使う）。
+   スマホでは音声行の右端（以前のミュートの位置）にこのスイッチを置く。
    ================================================================ */
 function renderMix(){
   const btn = document.getElementById('mix');
@@ -414,9 +411,12 @@ function toggleMix(){
 function toggleAudioKey(k){
   if(!players[k]) return;
   audioUnlocked = true;
+  const unlocked = unlockPendingUnmute();
   if(!mixMode){ applyAudio([k]); return; }
   if(!audioKeys.includes(k)){ applyAudio(audioKeys.concat(k)); return; }
-  if(audioKeys.length <= 1) return;            // 最後の1本は外せない
+  // 最後の1本は外せない。ただし無音を解いたのなら、選択が変わらなくても
+  // 鳴らしてチップを引っ込める必要がある
+  if(audioKeys.length <= 1){ if(unlocked) applyAudio(audioKeys); return; }
   applyAudio(audioKeys.filter(x => x !== k));
 }
 
@@ -448,6 +448,23 @@ function unmute(){
   }
 }
 function toggleMute(){ isMuted() ? unmute() : muteAll(); }
+
+/* 自動再生ポリシーのための無音だけを、意図的な音声操作で解く。
+   ミュートには2種類ある。自分でかけたもの（M / スピーカー）は
+   「選択とは独立の軸」なので選択を動かしても解かない。共有URLから
+   開いたときにこちらの都合で挟んだもの（pendingUnmute）は、押した
+   本人が望んでいない無音なので、音声を選ぶ操作そのものをジェスチャー
+   として扱って解く。これが無いと、音声ボタンが点灯したのに鳴らない。
+   実際に音を配るのは呼び出し元の applyAudio に任せる。ここで鳴らすと
+   切り替える前の配信が一瞬だけ鳴ってしまう。解いたかどうかを返すので、
+   選択が変わらず applyAudio を通らない経路でも反映を落とさずに済む */
+function unlockPendingUnmute(){
+  if(!pendingUnmute) return false;
+  muted = false;
+  pendingUnmute = false;
+  if(masterVol === 0) setVolume(100);
+  return true;
+}
 
 /* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
 function renderVolume(){
@@ -562,6 +579,7 @@ function swapVc(){
   // 組の両方が鳴っている（同時再生中）。入れ替える先がないので何もしない
   if(pair.keys.every(k => audioKeys.includes(k))) return;
   audioUnlocked = true;
+  unlockPendingUnmute();
   const next = from === pair.keys[0] ? pair.keys[1] : pair.keys[0];
   const keys = mixMode
     ? audioKeys.filter(k => k !== from).concat(next)
@@ -1090,10 +1108,8 @@ document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(t
 document.getElementById('helpclose').addEventListener('click', () => toggleHelp(false));
 
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
-document.querySelectorAll('[data-aud]').forEach(b => b.addEventListener('click', () => {
-  if(b.dataset.aud === 'none'){ toggleMute(); return; }
-  toggleAudioKey(b.dataset.aud);
-}));
+document.querySelectorAll('[data-aud]').forEach(
+  b => b.addEventListener('click', () => toggleAudioKey(b.dataset.aud)));
 document.getElementById('mix').addEventListener('click', toggleMix);
 document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
