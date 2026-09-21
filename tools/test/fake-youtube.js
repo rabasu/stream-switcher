@@ -1,8 +1,12 @@
 /* 本物の YouTube IFrame API の代わりに読ませるスタブ。
-   ライブ配信の再現ポイントは3つ:
+   ライブ配信の再現ポイント（いずれも実機で確認した挙動）:
      - getDuration() は「実際の再生位置とは別の軸」の値を返す（序盤 3600 にパディング）
      - seekTo() は [LIVE端-DVR, LIVE端] にクランプされる（先を指すと LIVE端に張り付く）
-     - 再生が始まるまで getCurrentTime() は 0 を返す */
+     - 再生が始まるまで getCurrentTime() は 0 を返す
+     - 配信者が DVR を無効にしたライブは seekTo を黙って無視する（CFG.noDvr）
+   本物に無いもの: seek の着地遅延、セグメント粒度、LIVE端への自動追いつき。
+   ここで通っても実機で動く保証にはならないので、トランスポートを変えたら
+   実際の配信でも確かめること。 */
 window.__FAKE = { players: {} };
 (function(){
   const CFG = window.__FAKECFG || {};
@@ -54,9 +58,16 @@ window.__FAKE = { players: {} };
   FakePlayer.prototype.getCurrentTime = function(){ return this.pos(); };
   // ここが不具合の核。再生位置と同じ軸に乗らない値を返す
   FakePlayer.prototype.getDuration = function(){ return Math.max(PAD, this.edge()); };
+  // 配信者が DVR を無効にしたライブ（CFG.noDvr に動画IDを並べる）
+  FakePlayer.prototype.noDvr = function(){ return (CFG.noDvr || []).indexOf(this.videoId) >= 0; };
+  FakePlayer.prototype.getVideoData = function(){
+    return { video_id: this.videoId, isLive: true, allowLiveDvr: !this.noDvr() };
+  };
   FakePlayer.prototype.seekTo = function(t){
     const lo = this.floor(), hi = this.edge();
     const clamped = Math.min(hi, Math.max(lo, t));
+    // 本物は DVR 無効の配信への seekTo をエラーも出さずに無視する（実機で確認）
+    if(this.noDvr()){ this.seekLog.push({asked: t, got: null, edge: hi, ignored: true}); return; }
     this.seekLog.push({asked: t, got: clamped, edge: hi});
     this.posBase = clamped;
     this.posWall = now();

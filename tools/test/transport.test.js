@@ -14,8 +14,12 @@
      npm i -g playwright && npx playwright install chromium
      node tools/test/transport.test.js              # public/ を検証
      node tools/test/transport.test.js <publicDir>  # 任意のディレクトリを検証
-   Chromium の場所を指定したいときは環境変数 PW_CHROMIUM。 */
-const { chromium } = require('playwright');
+   Chromium の場所を指定したいときは環境変数 PW_CHROMIUM。
+   インストール済みの Chrome / Edge を使うなら PW_CHANNEL=chrome（または msedge）。
+   この場合 playwright の代わりに playwright-core だけでも動く。 */
+let chromium;
+try{ ({ chromium } = require('playwright')); }
+catch(e){ ({ chromium } = require('playwright-core')); }
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -49,7 +53,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const server = await serve(PUB);
   const base = 'http://127.0.0.1:' + server.address().port;
-  const launchOpts = process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {};
+  const launchOpts = process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM }
+                   : process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {};
   const browser = await chromium.launch(launchOpts);
 
   async function session(cfg){
@@ -341,6 +346,84 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     check('ズレ微調整は LIVE からの遅れ表示を動かさない',
           before.indexOf('LIVE') >= 0 && (await label(page)).indexOf('LIVE') >= 0,
           '調整前 "' + before + '" -> 調整後 "' + (await label(page)) + '"');
+    await ctx.close();
+  }
+
+  /* 15. 巻き戻せない配信が混ざっているとき: 戻せる配信だけ動かし、戻せない配信は LIVE のまま
+         （MAIN = DVR 無効、VC-A = DVR 有効。実機で出た組み合わせ） */
+  const MAIN_ID = 'AAAAAAAAAAA';
+  const offsets = page => page.evaluate(() => {
+    const o = {};
+    for(const k of ['main','a']){ const p = window.__FAKE.players['p-'+k]; o[k] = p.edge() - p.getCurrentTime(); }
+    return o;
+  });
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], noDvr: [MAIN_ID] });
+    await page.evaluate(() => {
+      const el = document.getElementById('scrub'); const max = parseFloat(el.max);
+      el.value = String(max - 60);
+      el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+    const hint = await page.textContent('#hint');
+    await sleep(4000);
+    const o = await offsets(page);
+    const shownMain = await label(page);
+    check('巻き戻せない配信が混ざっていても、戻せる配信は実際に戻る',
+          Math.abs(o.a - 60) < 4 && o.main < 3,
+          'VC-A ' + o.a.toFixed(1) + '秒 / MAIN ' + o.main.toFixed(1) + '秒（MAIN は 0 のまま）');
+    check('戻せない配信を見ているあいだは LIVE と出し、理由を伝える',
+          shownMain.indexOf('LIVE') >= 0 && /MAIN は配信者が巻き戻しを無効/.test(hint),
+          '表示 "' + shownMain + '" / ステータス "' + hint.trim() + '"');
+    await page.evaluate(() => setVideo('a'));
+    await sleep(800);
+    const shownA = await label(page);
+    check('戻せる配信に映像を切り替えると、その配信の遅れが出る',
+          /− 1:0\d/.test(shownA),
+          '映像を VC-A にした表示 "' + shownA + '"');
+    await ctx.close();
+  }
+
+  /* 16. 上の状態から LIVE を押すと、戻っていた配信も LIVE端へ戻る。
+         以前は MAIN の実測で全配信の LIVE端を貼り直していたため、VC-A が
+         60秒遅れたまま「LIVE端にいる」と記録され、LIVE を押しても戻らなかった */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], noDvr: [MAIN_ID] });
+    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+    await sleep(6000);                          // 突き合わせ処理を何周か通す
+    const mid = await offsets(page);
+    await page.evaluate(() => document.getElementById('golive').click());
+    await sleep(4000);
+    const o = await offsets(page);
+    check('戻せない配信と混在していても、LIVE で全配信が LIVE端へ戻る',
+          mid.a > 25 && o.a < 3 && o.main < 3,
+          'LIVE 前 VC-A ' + mid.a.toFixed(1) + '秒 → LIVE 後 VC-A ' + o.a.toFixed(1) + '秒 / MAIN ' + o.main.toFixed(1) + '秒');
+    await ctx.close();
+  }
+
+  /* 17. 全配信が巻き戻せないなら、シーク系の操作を押せなくする */
+  {
+    const { ctx, page } = await session({ keys: ['main'], noDvr: [MAIN_ID] });
+    const st = await page.evaluate(() => ({
+      scrub: document.getElementById('scrub').disabled,
+      seek: Array.from(document.querySelectorAll('[data-seek]')).every(b => b.disabled),
+      title: document.getElementById('scrub').title
+    }));
+    check('全配信が巻き戻せないと、シークバーと秒送りが無効になり理由が出る',
+          st.scrub && st.seek && /巻き戻しを無効/.test(st.title),
+          'scrub.disabled=' + st.scrub + ' / 秒送り disabled=' + st.seek + ' / title "' + st.title + '"');
+    await ctx.close();
+  }
+
+  /* 18. 巻き戻せない配信のズレ微調整は押せない */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], noDvr: [MAIN_ID] });
+    const st = await page.evaluate(() => ({
+      mainMinus: document.querySelector('[data-trim="main"][data-d="-0.5"]').disabled,
+      aMinus: document.querySelector('[data-trim="a"][data-d="-0.5"]').disabled
+    }));
+    check('巻き戻せない配信のズレ微調整は無効、戻せる配信は押せる',
+          st.mainMinus && !st.aMinus,
+          'MAIN − disabled=' + st.mainMinus + ' / VC-A − disabled=' + st.aMinus);
     await ctx.close();
   }
 

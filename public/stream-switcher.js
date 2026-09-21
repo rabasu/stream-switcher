@@ -609,6 +609,12 @@ function setVolume(v, silent){
    原則2: 画面には「押した結果」ではなくプレーヤーの実状態を出す。
    要求値をそのまま描くと、シークが失敗してもUI上は戻れたように見え、
    不具合が画面から隠れてしまう。実測と食い違ったら実測へ寄せる。
+
+   原則3: 巻き戻せない配信がある。配信者が DVR を無効にしたライブでは、
+   YouTube が seekTo を黙って無視する（本家のページでも戻れない）。
+   シークは巻き戻せる配信にだけ掛け、戻せない配信は LIVE のまま流す。
+   本配信だけ戻せるときに、戻せない同時視聴の遅れへ本配信を合わせる、
+   という使い方ができるよう、あえて全体を止めずに片側だけ動かす。
    ================================================================ */
 const ST = {UNSTARTED:-1, ENDED:0, PLAYING:1, PAUSED:2, BUFFERING:3, CUED:5};
 const SETTLE_MS = 2000;        // コマンド発行後、実状態が追いつくのを待つ時間
@@ -616,14 +622,19 @@ const OFFSET_SNAP = 2;         // 実測とのズレがこれ以内なら表示�
 const LIVE_EPS = 3;            // 実測の遅れがこれ未満なら LIVE端に居るとみなす
 const LIVE_BADGE = 6;          // LIVE 表示にする遅れ。ライブは数秒の揺れが普通
 const SEEK_SHORTFALL = 10;     // 要求よりこれ以上手前で止まったら、戻れないと報せる
+const LIVE_OVERSHOOT = 86400;  // LIVE へ戻すときに指す「LIVE端のはるか先」(秒)
 
-let targetOffset = 0;          // 要求している遅れ秒数。実測とズレたら補正される
+let targetOffset = 0;          // 巻き戻せる配信に要求している遅れ秒数。実測で補正される
 let paused = false;
 let scrubbing = false;
 let settleUntil = 0;
 let verifyTimer = null;
+let transportSeq = 0;          // 操作の通し番号。遅れて届く後処理が新しい操作を踏まないため
 const trim = {main:0, a:0, b:0};
 const stateOf = {main:ST.UNSTARTED, a:ST.UNSTARTED, b:ST.UNSTARTED};
+/* 配信ごとの巻き戻し可否。true = 戻せる / false = 戻せない /
+   null = まだ分からない（分からないうちは戻せるものとして扱う） */
+const canRewind = {main:null, a:null, b:null};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
    持ち、経過実時間で外挿する。ライブの LIVE端は再生状態にも再生速度にも
    関係なく実時間と同じ速さで進むので、外挿は常に1倍速でよい。 */
@@ -637,10 +648,12 @@ function resetTransport(){
   settleUntil = 0;
   clearTimeout(verifyTimer);
   verifyTimer = null;
+  transportSeq++;
   KEYS.forEach(k => {
     // ズレ調整は配信ごとの補正なので、別の配信を読み込んだら持ち越さない
     trim[k] = 0;
     stateOf[k] = ST.UNSTARTED;
+    canRewind[k] = null;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
     const el = document.getElementById('tr-'+k);
@@ -650,6 +663,28 @@ function resetTransport(){
 function markCommand(){ settleUntil = performance.now() + SETTLE_MS; }
 function settling(){ return performance.now() < settleUntil; }
 function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
+
+/* 巻き戻しの可否を読む。公式 API には無いが、getVideoData() の isLive /
+   allowLiveDvr で分かる（実機で確認済み）。読めない環境では null のまま */
+function readRewind(k){
+  if(canRewind[k] !== null) return canRewind[k];
+  const p = players[k];
+  if(!p || !ready[k] || typeof p.getVideoData !== 'function') return null;
+  try{
+    const vd = p.getVideoData();
+    if(!vd || typeof vd.isLive !== 'boolean') return null;
+    // アーカイブは自由にシークできる。ライブは配信者の DVR 設定次第
+    canRewind[k] = vd.isLive ? vd.allowLiveDvr !== false : true;
+  }catch(e){}
+  return canRewind[k];
+}
+/* シークを掛けてよい配信か */
+function seekable(k){ return !!players[k] && ready[k] && readRewind(k) !== false; }
+/* 読み込んでいて、巻き戻せないと分かっている配信 */
+function noRewindKeys(){ return KEYS.filter(k => players[k] && ready[k] && readRewind(k) === false); }
+function noRewindMessage(keys){
+  return keys.map(k => SRC_LABEL[k]).join('・') + ' は配信者が巻き戻しを無効にしているため、LIVE のままです';
+}
 
 /* 再生位置。取れないときは null を返す（開始直後の 0 と区別するため） */
 function playerTime(k){
@@ -700,20 +735,24 @@ function measuredOffset(k){
   if(edge <= 0 || cur === null) return null;
   return Math.max(0, edge - cur + trim[k]);
 }
-/* 表示に使う遅れ。見ている映像を優先し、無ければ取れたものを使う */
-function currentOffset(){
-  const order = [videoSrc].concat(KEYS.filter(k => k !== videoSrc));
-  for(let i = 0; i < order.length; i++){
-    const v = measuredOffset(order[i]);
-    if(v !== null) return v;
-  }
-  return null;
+/* targetOffset の基準にする配信。targetOffset に従うのは巻き戻せる配信だけ
+   なので、見ている配信が戻せればそれ、戻せなければ戻せる別の配信を使う */
+function refKey(){
+  if(seekable(videoSrc)) return videoSrc;
+  return KEYS.find(seekable) || null;
+}
+/* 画面に出す遅れ。見ている配信の実態を出す。巻き戻せない配信を見ている
+   あいだは、他の配信を戻していても LIVE のまま */
+function shownOffset(){
+  if(!players[videoSrc] || seekable(videoSrc)) return targetOffset;
+  const m = measuredOffset(videoSrc);
+  return m === null ? 0 : m;
 }
 
-/* 絶対シーク。LIVE端の推定が要る */
+/* 絶対シーク。LIVE端の推定が要る。巻き戻せない配信には掛けない */
 function seekPlayer(k){
   const p = players[k];
-  if(!p || !ready[k]) return false;
+  if(!p || !seekable(k)) return false;
   const edge = liveEdge(k);
   // LIVE端が未確定のまま seekTo すると配信の先頭へ飛ばされ再生が壊れる
   if(edge <= 0) return false;
@@ -721,22 +760,28 @@ function seekPlayer(k){
   catch(e){ return false; }
 }
 function seekAll(){
+  transportSeq++;
   let ok = false;
   KEYS.forEach(k => { if(seekPlayer(k)) ok = true; });
+  const skipped = noRewindKeys();
+  if(targetOffset > 0 && skipped.length) setStatusLine(noRewindMessage(skipped));
   if(ok){ markCommand(); scheduleSeekVerify(); }
   return ok;
 }
 /* 相対シーク（delta>0 = 過去へ）。LIVE端の推定を通さず再生位置から直接
    動かすので、推定がずれていても要求どおりの量だけ確実に動く */
 function seekRelative(delta){
+  transportSeq++;
   let ok = false;
   KEYS.forEach(k => {
     const p = players[k];
-    if(!p || !ready[k]) return;
+    if(!p || !seekable(k)) return;
     const cur = playerTime(k);
     if(cur === null) return;
     try{ p.seekTo(Math.max(0, cur - delta), true); ok = true; }catch(e){}
   });
+  const skipped = noRewindKeys();
+  if(skipped.length) setStatusLine(noRewindMessage(skipped));
   if(!ok) return;
   targetOffset = Math.max(0, targetOffset + delta);
   markCommand();
@@ -754,7 +799,8 @@ function scheduleSeekVerify(){
       if(++waits < 8){ verifyTimer = setTimeout(check, 500); return; }
       return;                                   // 長引いているだけ。誤報しない
     }
-    const m = currentOffset();
+    const ref = refKey();
+    const m = ref ? measuredOffset(ref) : null;
     if(m === null) return;
     if(targetOffset - m > SEEK_SHORTFALL){
       setStatusLine('この配信はここまでしか戻れません（' + fmt(m) + ' 前）');
@@ -775,17 +821,41 @@ function togglePlay(){
   renderTransport();
   showCenter();
 }
+/* LIVE へ戻す。LIVE端の推定は使わず、はるか先を指してプレーヤー側のクランプで
+   LIVE端に着地させる（実機で確認済み）。推定が何かの理由で壊れていても、
+   これで必ず追いつける */
 function goLive(){
+  const seq = ++transportSeq;
   audioUnlocked = true;
   targetOffset = 0;
   paused = false;
-  seekAll();
+  clearTimeout(verifyTimer);
+  verifyTimer = null;
+  KEYS.forEach(k => {
+    const p = players[k];
+    const cur = playerTime(k);
+    if(!p || cur === null) return;
+    try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){}
+  });
   applyAudio(audioKeys, true);
   // unmute 後に再生（順序を逆にするとポリシーで止まることがある）
   KEYS.forEach(k => { if(players[k] && ready[k]) players[k].playVideo(); });
   markCommand();
-  // 追いついた先が本当の LIVE端。落ち着いてから推定を貼り直す
-  setTimeout(() => { KEYS.forEach(k => noteLiveEdge(k)); renderTransport(); }, SETTLE_MS);
+  // 着地した先が本当の LIVE端。推定を貼り直し、ズレ微調整で下げていた配信は
+  // そのぶんだけ戻し直す。間に別の操作が入っていたら何もしない
+  setTimeout(() => {
+    if(seq !== transportSeq) return;
+    const now = performance.now();
+    KEYS.forEach(k => {
+      const cur = playerTime(k);
+      if(cur === null || cur <= 0) return;
+      edgeBase[k] = cur;
+      edgeWall[k] = now;
+      if(trim[k] < 0) seekPlayer(k);
+    });
+    markCommand();
+    renderTransport();
+  }, SETTLE_MS);
   renderTransport();
 }
 /* ライブは再生位置が入るまで少し掛かる。取れるまで LIVE へ同期を再試行 */
@@ -852,10 +922,13 @@ function renderTrim(){
     const k = b.dataset.trim;
     const d = parseFloat(b.dataset.d);
     const noPlayer = !players[k];
+    const noRewind = !noPlayer && readRewind(k) === false;
     const noRoom = d > 0 && trimHeadroom(k) < d - TRIM_EPS;
-    b.disabled = noPlayer || noRoom;
+    b.disabled = noPlayer || noRewind || noRoom;
     b.title = noPlayer
       ? SRC_LABEL[k] + ' を読み込んでいません'
+      : noRewind
+        ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、ずらせません'
       : noRoom
         ? 'LIVE の最先端に追いついているため、これ以上は進められません。'
           + '戻して見ているあいだは動かせます'
@@ -864,7 +937,9 @@ function renderTrim(){
 }
 function adjustTrim(k, d){
   // 押せない向きは動かさない（無効化と同じ判定。表示だけ進むのを防ぐ）
+  if(!seekable(k)) return;
   if(d > 0 && trimHeadroom(k) < d - TRIM_EPS) return;
+  transportSeq++;
   trim[k] = Math.round((trim[k] + d) * 10) / 10;
   document.getElementById('tr-'+k).textContent = trim[k].toFixed(1);
   if(seekPlayer(k)) markCommand();
@@ -876,9 +951,9 @@ function fmt(sec){
 }
 
 /* スライダーの幅 = さかのぼれる長さの目安。配信開始からの経過（= LIVE端）を
-   使い、いちばん短い配信に合わせる。2時間で頭打ち */
+   使い、巻き戻せる配信のうちいちばん短いものに合わせる。2時間で頭打ち */
 function scrubSpan(){
-  const edges = KEYS.filter(k => ready[k]).map(k => liveEdge(k)).filter(d => d > 0);
+  const edges = KEYS.filter(seekable).map(k => liveEdge(k)).filter(d => d > 0);
   const span = edges.length ? Math.min.apply(null, edges) : 600;
   return Math.round(Math.max(60, Math.min(span, 7200)));
 }
@@ -889,16 +964,38 @@ function reconcileTransport(){
   else if(anyState(ST.PAUSED) && !anyState(ST.BUFFERING)) paused = true;
 
   if(scrubbing) return;
-  const m = currentOffset();
-  if(m === null) return;
-  // 実測で LIVE端に着いているなら、そこを LIVE端として貼り直す。
-  // 配信側の一時的な停止で推定が上振れしたまま残るのを防ぐ
-  if(!paused && m < LIVE_EPS){
-    KEYS.forEach(k => noteLiveEdge(k));
-    targetOffset = 0;
-    return;
+  // 実測で LIVE端に着いている配信は、そこを LIVE端として貼り直す。
+  // 配信側の一時的な停止で推定が上振れしたまま残るのを防ぐ。
+  // 貼り直しは必ず配信ごとに、その配信自身の実測だけで行うこと。以前は
+  // 見ている配信の実測で全配信を貼り直していたため、巻き戻せない MAIN が
+  // LIVE端にいるのを見て、60秒戻った VC-A まで「LIVE端にいる」と記録し、
+  // 以後 LIVE ボタンでも戻らなくなった（実機で再現）
+  if(!paused){
+    KEYS.forEach(k => {
+      const m = measuredOffset(k);
+      if(m !== null && m < LIVE_EPS) noteLiveEdge(k);
+    });
   }
+  const ref = refKey();
+  if(!ref){ targetOffset = 0; return; }       // 巻き戻せる配信が無い
+  const m = measuredOffset(ref);
+  if(m === null) return;
+  if(!paused && m < LIVE_EPS){ targetOffset = 0; return; }
   if(Math.abs(m - targetOffset) > OFFSET_SNAP) targetOffset = m;
+}
+/* シーク系の操作が効くか。全配信が巻き戻せないなら押せなくして理由を出す。
+   見ている配信だけ戻せないときは押せるままにし、何が起きるかを title で示す */
+function renderRewind(scrub){
+  const any = KEYS.some(seekable);
+  const blocked = noRewindKeys();
+  scrub.disabled = !any;
+  document.querySelectorAll('[data-seek]').forEach(b => b.disabled = !any);
+  const others = KEYS.filter(seekable).map(k => SRC_LABEL[k]).join('・');
+  scrub.title = !any
+    ? (blocked.length ? noRewindMessage(blocked) : '')
+    : (!seekable(videoSrc) && players[videoSrc])
+      ? SRC_LABEL[videoSrc] + ' は配信者が巻き戻しを無効にしています。シークは ' + others + ' にだけ効きます'
+      : '';
 }
 
 /* スライダーは 左=過去 / 右=LIVE */
@@ -907,8 +1004,9 @@ function renderTransport(){
   // 掴んでいる間に max を動かすと、離した瞬間に読み取る値がずれる
   if(!scrubbing) scrub.max = scrubSpan();
   if(!settling()) reconcileTransport();
+  renderRewind(scrub);
 
-  const off = scrubbing ? (scrub.max - parseFloat(scrub.value)) : targetOffset;
+  const off = scrubbing ? (scrub.max - parseFloat(scrub.value)) : shownOffset();
   if(!scrubbing) scrub.value = Math.max(0, scrub.max - Math.min(off, scrub.max));
 
   const pct = scrub.max > 0 ? (scrub.value / scrub.max) * 100 : 0;
@@ -967,7 +1065,11 @@ function renderDiag(){
                     + (muted ? '（ミュート）' : '')
                     + (mixMode ? '（同時再生 ON）' : '') + '\n',
     'Space       ' + (currentPair() ? currentPair().short : '—')
-                    + ' / ' + (linkVideo ? '音声+映像' : '音声のみ')
+                    + ' / ' + (linkVideo ? '音声+映像' : '音声のみ') + '\n',
+    '巻き戻し    ' + (KEYS.filter(k => players[k]).map(k => {
+                      const r = readRewind(k);
+                      return SRC_LABEL[k] + (r === false ? ' 不可' : r === true ? ' 可' : ' ?');
+                    }).join(' / ') || '—')
   );
 }
 function toggleDiag(){
