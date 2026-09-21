@@ -359,8 +359,9 @@ function applyAudio(keys, instant){
 }
 
 /* 共有URLから開いた直後、ジェスチャーが無くて鳴らせないあいだだけ出す。
-   押せば解除できる。unmute() を通ると pendingUnmute が消えるので、
-   そのあとに自分でミュートしても（M / スピーカー）再び出ることはない */
+   チップを押すか、音声を選ぶ（音声ボタン / Q・W・E / Space）と解ける。
+   どちらも pendingUnmute を落とすので、そのあとに自分でミュートしても
+   （M / スピーカー）再び出ることはない */
 function renderUnmuteChip(){
   document.getElementById('unmuteChip').hidden =
     !pendingUnmute || !isMuted() || !KEYS.some(k => players[k]);
@@ -410,9 +411,12 @@ function toggleMix(){
 function toggleAudioKey(k){
   if(!players[k]) return;
   audioUnlocked = true;
+  const unlocked = unlockPendingUnmute();
   if(!mixMode){ applyAudio([k]); return; }
   if(!audioKeys.includes(k)){ applyAudio(audioKeys.concat(k)); return; }
-  if(audioKeys.length <= 1) return;            // 最後の1本は外せない
+  // 最後の1本は外せない。ただし無音を解いたのなら、選択が変わらなくても
+  // 鳴らしてチップを引っ込める必要がある
+  if(audioKeys.length <= 1){ if(unlocked) applyAudio(audioKeys); return; }
   applyAudio(audioKeys.filter(x => x !== k));
 }
 
@@ -444,6 +448,23 @@ function unmute(){
   }
 }
 function toggleMute(){ isMuted() ? unmute() : muteAll(); }
+
+/* 自動再生ポリシーのための無音だけを、意図的な音声操作で解く。
+   ミュートには2種類ある。自分でかけたもの（M / スピーカー）は
+   「選択とは独立の軸」なので選択を動かしても解かない。共有URLから
+   開いたときにこちらの都合で挟んだもの（pendingUnmute）は、押した
+   本人が望んでいない無音なので、音声を選ぶ操作そのものをジェスチャー
+   として扱って解く。これが無いと、音声ボタンが点灯したのに鳴らない。
+   実際に音を配るのは呼び出し元の applyAudio に任せる。ここで鳴らすと
+   切り替える前の配信が一瞬だけ鳴ってしまう。解いたかどうかを返すので、
+   選択が変わらず applyAudio を通らない経路でも反映を落とさずに済む */
+function unlockPendingUnmute(){
+  if(!pendingUnmute) return false;
+  muted = false;
+  pendingUnmute = false;
+  if(masterVol === 0) setVolume(100);
+  return true;
+}
 
 /* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
 function renderVolume(){
@@ -558,6 +579,7 @@ function swapVc(){
   // 組の両方が鳴っている（同時再生中）。入れ替える先がないので何もしない
   if(pair.keys.every(k => audioKeys.includes(k))) return;
   audioUnlocked = true;
+  unlockPendingUnmute();
   const next = from === pair.keys[0] ? pair.keys[1] : pair.keys[0];
   const keys = mixMode
     ? audioKeys.filter(k => k !== from).concat(next)
