@@ -266,6 +266,84 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 11. ズレ微調整: LIVE端でも「戻す」向きは効く */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    const gap = () => page.evaluate(() =>
+      window.__FAKE.players['p-main'].getCurrentTime() - window.__FAKE.players['p-a'].getCurrentTime());
+    const before = await gap();
+    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="-0.5"]').click());
+    await sleep(2500);
+    const moved = (await gap()) - before;
+    check('LIVE端でも、ズレ微調整の「−」は実際に動く',
+          Math.abs(moved + 0.5) < 0.15,
+          'MAIN が A に対して ' + moved.toFixed(3) + '秒 動いた（期待 -0.5秒） / 表示 '
+            + (await page.textContent('#tr-main')));
+    await ctx.close();
+  }
+
+  /* 12. ズレ微調整: LIVE端では「+」を押せなくする（黙って無反応にしない） */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    const plus = '[data-trim="main"][data-d="0.5"]';
+    const atLive = await page.evaluate(sel => ({
+      disabled: document.querySelector(sel).disabled,
+      title: document.querySelector(sel).title
+    }), plus);
+    check('LIVE端では「+」が無効で、理由が示される',
+          atLive.disabled && /追いついている/.test(atLive.title),
+          'disabled=' + atLive.disabled + ' / title "' + atLive.title + '"');
+
+    // 戻して見ているあいだは余地があるので押せる
+    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+    await sleep(2500);
+    const behind = await page.evaluate(sel => document.querySelector(sel).disabled, plus);
+    const gap = () => page.evaluate(() =>
+      window.__FAKE.players['p-main'].getCurrentTime() - window.__FAKE.players['p-a'].getCurrentTime());
+    const before = await gap();
+    await page.evaluate(sel => document.querySelector(sel).click(), plus);
+    await sleep(2500);
+    const moved = (await gap()) - before;
+    check('戻して見ているあいだは「+」が押せて、実際に動く',
+          !behind && Math.abs(moved - 0.5) < 0.15,
+          'disabled=' + behind + ' / MAIN が ' + moved.toFixed(3) + '秒 動いた（期待 +0.5秒）');
+    await ctx.close();
+  }
+
+  /* 13. ズレ微調整は「もう片方を黙って下げる」形にしない */
+  {
+    const { ctx, page } = await session({ keys: ['main','a','b'] });
+    const pos = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a','b']) o[k] = window.__FAKE.players['p-'+k].getCurrentTime();
+      return o;
+    });
+    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+    await sleep(2500);
+    const before = await pos();
+    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="0.5"]').click());
+    await sleep(2500);
+    const after = await pos();
+    const dMain = after.main - before.main - (after.a - before.a);   // A を基準にした MAIN の移動
+    const dB = (after.b - before.b) - (after.a - before.a);          // A を基準にした B の移動
+    check('触った配信だけが動き、他の配信は動かされない',
+          Math.abs(dMain - 0.5) < 0.15 && Math.abs(dB) < 0.15,
+          'MAIN ' + dMain.toFixed(3) + '秒 / B ' + dB.toFixed(3) + '秒（B は 0 であるべき）');
+    await ctx.close();
+  }
+
+  /* 14. ズレ微調整を入れても、LIVE からの遅れ表示は動かない（共通軸から外す） */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    const before = await label(page);
+    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="-0.5"]').click());
+    await sleep(3000);
+    check('ズレ微調整は LIVE からの遅れ表示を動かさない',
+          before.indexOf('LIVE') >= 0 && (await label(page)).indexOf('LIVE') >= 0,
+          '調整前 "' + before + '" -> 調整後 "' + (await label(page)) + '"');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

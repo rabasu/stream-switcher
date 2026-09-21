@@ -341,7 +341,7 @@ function renderAvailability(){
     b.disabled = k === 'none' ? loadedCount() === 0 : !players[k];
   });
   // ズレ微調整も、無い配信の分は動かしても意味がない
-  document.querySelectorAll('[data-trim]').forEach(b => b.disabled = !players[b.dataset.trim]);
+  renderTrim();                   // ズレ微調整は「進める余地」でも押せるかが変わる
   // 同時再生は混ぜる相手が要る
   document.getElementById('mix').disabled = loadedCount() < 2;
   if(loadedCount() < 2 && mixMode) mixMode = false;
@@ -660,16 +660,17 @@ function playerTime(k){
     return (typeof t === 'number' && isFinite(t) && t >= 0) ? t : null;
   }catch(e){ return null; }
 }
-/* 共通軸に載せた再生位置。trim は配信ごとのズレ調整なので軸から外す */
-function axisTime(k){
-  const t = playerTime(k);
-  return t === null ? null : t - trim[k];
-}
 /* LIVE端の推定値。実測が推定を追い越していたら、そこまで引き上げる。
-   再生位置が LIVE端より先に行くことはないので、これで上振れはしない */
+   再生位置が LIVE端より先に行くことはないので、これで上振れはしない。
+
+   ここで使うのはプレーヤー自身の再生位置で、ズレ微調整(trim)は混ぜない。
+   「再生位置 - trim」を渡すと、trim を動かした瞬間に値が跳ねて引き上げ規則が
+   発火し、推定が同じだけ持ち上がって seek をちょうど打ち消してしまう
+   （LIVE端でズレ微調整が効かないデグレの原因）。trim は seek 先と
+   遅れ秒数を出すときにだけ足す。 */
 function liveEdge(k){
   const now = performance.now();
-  const cur = axisTime(k);
+  const cur = playerTime(k);
   if(!edgeWall[k]){
     // 再生が動き出すまで getCurrentTime() は 0 を返す。まだ LIVE端は決められない
     if(cur === null || cur <= 0) return 0;
@@ -686,18 +687,18 @@ function liveEdge(k){
 /* LIVE端にいると分かっている瞬間に推定を貼り直す。推定を引き下げられる唯一の
    経路で、配信側の一時的な停止などで上振れしたまま残るのを防ぐ */
 function noteLiveEdge(k){
-  const cur = axisTime(k);
+  const cur = playerTime(k);
   if(cur === null || cur <= 0) return false;
-  edgeBase[k] = cur;
+  edgeBase[k] = cur - trim[k];   // ズレ微調整のぶんは意図した遅れ。LIVE端から外す
   edgeWall[k] = performance.now();
   return true;
 }
 /* 実測の遅れ秒数。推定が取れていなければ null */
 function measuredOffset(k){
   const edge = liveEdge(k);
-  const cur = axisTime(k);
+  const cur = playerTime(k);
   if(edge <= 0 || cur === null) return null;
-  return Math.max(0, edge - cur);
+  return Math.max(0, edge - cur + trim[k]);
 }
 /* 表示に使う遅れ。見ている映像を優先し、無ければ取れたものを使う */
 function currentOffset(){
@@ -836,10 +837,38 @@ function setRate(r){
     if(got !== null && got !== r) setStatusLine('この配信は ' + r + 'x に対応していません');
   }, 600);
 }
+/* ズレ微調整。配信ごとの再生位置を 0.5秒 刻みでずらし、3本の時間軸を揃える。
+   共通軸の遅れ秒数からは外してあるので、動かしても LIVE からの遅れ表示は動かない。
+
+   「+」は LIVE端へ近づける向き。LIVE端より先のフレームは存在しないため、
+   追いついている間は押してもプレーヤー側でクランプされて必ず何も起きない。
+   押せてしまうと「効かないだけ」なのか「壊れている」のか区別が付かないので、
+   余地がない側のボタンを無効にして、理由を title で示す。
+   余地 = いまの遅れ(targetOffset) − その配信の trim */
+const TRIM_EPS = 1e-6;
+function trimHeadroom(k){ return targetOffset - trim[k]; }
+function renderTrim(){
+  document.querySelectorAll('[data-trim]').forEach(b => {
+    const k = b.dataset.trim;
+    const d = parseFloat(b.dataset.d);
+    const noPlayer = !players[k];
+    const noRoom = d > 0 && trimHeadroom(k) < d - TRIM_EPS;
+    b.disabled = noPlayer || noRoom;
+    b.title = noPlayer
+      ? SRC_LABEL[k] + ' を読み込んでいません'
+      : noRoom
+        ? 'LIVE の最先端に追いついているため、これ以上は進められません。'
+          + '戻して見ているあいだは動かせます'
+        : SRC_LABEL[k] + ' を 0.5秒 ' + (d > 0 ? '進める' : '戻す');
+  });
+}
 function adjustTrim(k, d){
+  // 押せない向きは動かさない（無効化と同じ判定。表示だけ進むのを防ぐ）
+  if(d > 0 && trimHeadroom(k) < d - TRIM_EPS) return;
   trim[k] = Math.round((trim[k] + d) * 10) / 10;
   document.getElementById('tr-'+k).textContent = trim[k].toFixed(1);
   if(seekPlayer(k)) markCommand();
+  renderTrim();
 }
 function fmt(sec){
   sec = Math.max(0, Math.round(sec));
@@ -897,6 +926,7 @@ function renderTransport(){
     : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
   renderRate();
+  renderTrim();
   document.body.classList.toggle('paused', paused);
   const playLabel = paused ? '再生' : '一時停止';
   ['centerBtn','playBtn'].forEach(id => {
