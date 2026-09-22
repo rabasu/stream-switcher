@@ -619,6 +619,81 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 26. ズレを付けているあいだは、動画ごとのシークバーを並べて見せる。
+         鎖アイコンだけでは「別々の位置で再生している」「連動している」が
+         伝わらないので、状態を絵にする */
+  {
+    const A_ID = 'BBBBBBBBBBB';
+    const { ctx, page } = await session({
+      keys: ['main','a'], archive: [MAIN_ID, A_ID],
+      lengths: {[MAIN_ID]: 900, [A_ID]: 1500}
+    });
+    const view = () => page.evaluate(() => ({
+      multi: !document.getElementById('multiScrub').hidden,
+      rows: Array.from(document.querySelectorAll('#multiScrub .msRow')).filter(r => !r.hidden).length,
+      single: !document.getElementById('scrub').hidden,
+      linked: document.getElementById('multiScrub').classList.contains('linked')
+    }));
+    const pos = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']) o[k] = window.__FAKE.players['p-'+k].getCurrentTime();
+      return o;
+    });
+    const dragRow = (k, v) => page.evaluate(([key, val]) => {
+      const bar = document.querySelector('#multiScrub .msRow[data-ms="' + key + '"] input');
+      bar.value = String(val);
+      bar.dispatchEvent(new Event('input', {bubbles:true}));
+      bar.dispatchEvent(new Event('change', {bubbles:true}));
+    }, [k, v]);
+    const toggleLink = () => page.evaluate(() => document.getElementById('groupSeek').click());
+
+    const v0 = await view();
+    check('既定（ズレ無し・連動）ではシークバーは1本のまま',
+          v0.single && !v0.multi,
+          '共通バー=' + v0.single + ' / 動画ごと=' + v0.multi);
+
+    await toggleLink();                       // 連動を切る = ズレを付けにいく
+    const v1 = await view();
+    check('連動を切ると、読み込んでいる動画のぶんだけバーが並ぶ',
+          v1.multi && v1.rows === 2 && !v1.single && !v1.linked,
+          '動画ごと=' + v1.multi + ' / 本数=' + v1.rows + ' / 共通バー=' + v1.single
+            + ' / 緑枠=' + v1.linked);
+
+    await dragRow('main', 120);               // MAIN だけ頭出し
+    await sleep(1200);
+    const solo = await pos();
+    check('並んだバーは、掴んだ動画だけを動かす',
+          Math.abs(solo.main - 120) < 8 && solo.a < 40,
+          'MAIN ' + solo.main.toFixed(1) + '秒 / VC-A ' + solo.a.toFixed(1) + '秒');
+
+    await toggleLink();                       // 連動に戻す
+    const v2 = await view();
+    check('連動に戻してもバーは並んだまま（つまみが緑枠になる）',
+          v2.multi && v2.linked,
+          '動画ごと=' + v2.multi + ' / 緑枠=' + v2.linked);
+
+    const before = await pos();
+    await dragRow('main', 300);
+    await sleep(1200);
+    const after = await pos();
+    const gap0 = before.main - before.a, gap1 = after.main - after.a;
+    check('連動中は、1本を動かすと残りもズレを保ったまま動く',
+          Math.abs(after.main - 300) < 8 && Math.abs(gap1 - gap0) < 8
+            && after.a - before.a > 150,
+          'MAIN ' + after.main.toFixed(1) + '秒 / VC-A ' + before.a.toFixed(1) + ' → '
+            + after.a.toFixed(1) + '秒 / ズレ ' + gap0.toFixed(1) + ' → ' + gap1.toFixed(1) + '秒');
+
+    await page.evaluate(() => document.getElementById('golive').click());   // SYNC
+    await sleep(1200);
+    const v3 = await view();
+    const synced = await pos();
+    check('SYNC で揃えるとバーは1本に畳まれる',
+          v3.single && !v3.multi && Math.abs(synced.main - synced.a) < 8,
+          '共通バー=' + v3.single + ' / 動画ごと=' + v3.multi
+            + ' / MAIN ' + synced.main.toFixed(1) + '秒 VC-A ' + synced.a.toFixed(1) + '秒');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

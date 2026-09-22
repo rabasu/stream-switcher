@@ -643,6 +643,11 @@ function setVolume(v, silent){
    終わったことだけを映像の上に出す（renderEndedNote）。次に読み込めば
    アーカイブとして開ける。
 
+   原則0: 状態は文字ではなく絵で見せる。ズレを付けて見ているあいだは、
+   動画ごとのシークバーを並べて出す。「別々の位置で再生している」ことも、
+   連動 ON で「1本動かすと全部動く」ことも、つまみの並びと緑の枠で伝わる。
+   揃っていれば（＝ズレを付けていなければ）バーは1本に畳む。
+
    原則5: アーカイブの同時視聴は「共通の遅れ」では揃わない。動画ごとに
    開始時刻も長さも違うので、LIVE端からの遅れという共通軸が意味を持たない。
    そこでアーカイブでは、見ている動画の絶対位置でシークし、他の動画は
@@ -661,6 +666,11 @@ const LIVE_OVERSHOOT = 86400;  // LIVE へ戻すときに指す「LIVE端のは�
 
 let targetOffset = 0;          // 巻き戻せる配信に要求している遅れ秒数。実測で補正される
 let groupSeek = true;          // シークを全部に効かせるか（OFF = 見ているものだけ）
+/* 意図的にズレを付けたか。付けているあいだは動画ごとのシークバーを出す。
+   SYNC で揃え直すと下りる。実測のズレで判定すると、再生中のわずかな差で
+   表示が出たり消えたりするので、操作の意図で持つ */
+let offsetIntent = false;
+let msDragKey = null;          // 動画ごとのバーを掴んでいるあいだ、その配信
 let paused = false;
 let scrubbing = false;
 let settleUntil = 0;
@@ -683,6 +693,8 @@ const edgeWall = {main:0, a:0, b:0};   // performance.now() の ms。0 = 未取�
 
 function resetTransport(){
   targetOffset = 0;
+  offsetIntent = false;
+  msDragKey = null;
   paused = false;
   scrubbing = false;
   settleUntil = 0;
@@ -824,20 +836,25 @@ function seekKeys(){
 /* 見ている動画を pos（動画の先頭からの秒数）へ動かす。他の動画は、いまの
    ズレを保ったまま同じ量だけずらす。開始時刻が違う動画どうしでも、一度
    頭出しすれば以後は揃ったまま動かせる */
-function seekArchiveTo(pos){
-  const cur = playerTime(videoSrc);
+function seekArchiveTo(pos, base){
+  const key = base || videoSrc;
+  const cur = playerTime(key);
   if(cur === null) return false;
   transportSeq++;
   const delta = pos - cur;
+  // まとめてシークが OFF なら、動かすのは掴んだ1本だけ
+  const targets = groupSeek ? KEYS.filter(seekable) : [key];
+  if(!groupSeek) offsetIntent = true;          // ズレを付けにいっている
   let ok = false;
-  seekKeys().forEach(k => {
-    const c = k === videoSrc ? cur : playerTime(k);
+  targets.forEach(k => {
+    const c = k === key ? cur : playerTime(k);
     if(c === null) return;
     try{ players[k].seekTo(Math.max(0, c + delta), true); ok = true; }catch(e){}
   });
   // 表示の軸（終端からの遅れ）も、動かした先に合わせておく
   const end = liveEdge(videoSrc);
-  if(end > 0) targetOffset = Math.max(0, end - pos);
+  const shown = key === videoSrc ? pos : playerTime(videoSrc);
+  if(end > 0 && shown !== null) targetOffset = Math.max(0, end - shown);
   if(ok) markCommand();
   return ok;
 }
@@ -847,6 +864,7 @@ function syncToShown(){
   const base = playerTime(videoSrc);
   if(base === null) return;
   transportSeq++;
+  offsetIntent = false;            // 揃えた。動画ごとのバーは畳んでよい
   KEYS.forEach(k => {
     if(k === videoSrc || !seekable(k)) return;
     try{ players[k].seekTo(Math.max(0, base), true); }catch(e){}
@@ -884,6 +902,7 @@ function seekAll(){
    動かすので、推定がずれていても要求どおりの量だけ確実に動く */
 function seekRelative(delta){
   transportSeq++;
+  if(!groupSeek) offsetIntent = true;
   let ok = false;
   seekKeys().forEach(k => {
     const p = players[k];
@@ -1068,6 +1087,7 @@ function adjustTrim(k, d){
   document.getElementById('tr-'+k).textContent = trim[k].toFixed(1);
   if(isArchive(k)){
     // アーカイブは共通軸を通さず、その場から要求どおりの量だけ動かす
+    offsetIntent = true;
     const cur = playerTime(k);
     if(cur !== null){ try{ players[k].seekTo(Math.max(0, cur + d), true); markCommand(); }catch(e){} }
   } else if(seekPlayer(k)) markCommand();
@@ -1121,6 +1141,42 @@ function reconcileTransport(){
   if(!paused && m < LIVE_EPS){ targetOffset = 0; return; }
   if(Math.abs(m - targetOffset) > OFFSET_SNAP) targetOffset = m;
 }
+/* 動画ごとのシークバーを出すか。アーカイブだけを2本以上読み込んでいて、
+   かつズレを付けている（付けにいっている）あいだだけ出す */
+function multiMode(){
+  const loaded = KEYS.filter(k => players[k] && ready[k]);
+  if(loaded.length < 2 || !loaded.every(isArchive)) return false;
+  return !groupSeek || offsetIntent;
+}
+/* 動画ごとのシークバー。掴んでいるバーだけは描き換えない（指が滑るため） */
+function renderMultiScrub(){
+  const wrap = document.getElementById('multiScrub');
+  if(!wrap) return;
+  const on = multiMode();
+  wrap.hidden = !on;
+  wrap.classList.toggle('linked', groupSeek);
+  document.getElementById('scrub').hidden = on;   // 並べるあいだは共通のバーを引っ込める
+  if(!on) return;
+  wrap.querySelectorAll('.msRow').forEach(row => {
+    const k = row.dataset.ms;
+    const has = !!players[k] && ready[k];
+    row.hidden = !has;
+    if(!has) return;
+    row.style.setProperty('--msColor', SRC_COLOR[k]);
+    const bar = row.querySelector('input');
+    const end = liveEdge(k);
+    const cur = playerTime(k);
+    if(k !== msDragKey && end > 0 && cur !== null){
+      bar.max = Math.round(Math.max(60, end));
+      bar.value = Math.round(Math.max(0, Math.min(cur, end)));
+    }
+    const pct = bar.max > 0 ? (bar.value / bar.max) * 100 : 0;
+    bar.style.background = 'linear-gradient(to right, ' + SRC_COLOR[k] + ' 0%, ' + SRC_COLOR[k]
+      + ' ' + pct + '%, #2b3340 ' + pct + '%, #2b3340 100%)';
+    row.querySelector('.msTime').textContent =
+      end > 0 ? fmt(parseFloat(bar.value)) + ' / ' + fmt(end) : '';
+  });
+}
 /* まとめてシーク。1本だけなら意味が無いので、場所を取らずに消す
    （シークバーの幅をできるだけ残す） */
 function renderGroupSeek(){
@@ -1136,6 +1192,7 @@ function renderGroupSeek(){
 function toggleGroupSeek(){
   groupSeek = !groupSeek;
   renderGroupSeek();
+  renderTransport();          // 動画ごとのバーの出し入れを、押した瞬間に見せる
   setStatusLine(groupSeek
     ? 'まとめてシーク ON。シークは全部に効きます'
     : 'まとめてシーク OFF。シークは今映しているものだけに効きます');
@@ -1182,6 +1239,7 @@ function renderTransport(){
     'linear-gradient(to right, var(--a) 0%, var(--a) ' + pct + '%, #2b3340 ' + pct + '%, #2b3340 100%)';
 
   renderGroupSeek();
+  renderMultiScrub();
   const label = document.getElementById('offsetLabel');
   const btn = document.getElementById('golive');
   const posEl = document.getElementById('posLabel');
@@ -1628,6 +1686,19 @@ setVolume(100);
 renderEco();
 renderLinkVideo();
 renderAvailability();
+
+/* 動画ごとのシークバー。掴んだ1本を動かし、連動 ON なら残りも同じだけ動く */
+document.querySelectorAll('#multiScrub .msRow').forEach(row => {
+  const k = row.dataset.ms;
+  const bar = row.querySelector('input');
+  bar.addEventListener('input', () => { msDragKey = k; renderMultiScrub(); });
+  bar.addEventListener('change', () => {
+    msDragKey = null;
+    seekArchiveTo(parseFloat(bar.value), k);
+    scheduleSeekVerify();
+    renderTransport();
+  });
+});
 
 const scrubEl = document.getElementById('scrub');
 /* 巻き戻しを始めたら「配信は終了しました」は用済み。つまみを掴んだ時点で消す */

@@ -537,6 +537,38 @@ body.paused #playBtn .iconPlay{display:block;}
 #timeline input[type=range]::-moz-range-thumb{
   width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
 }
+/* ===== 動画ごとのシークバー =====
+   ズレを付けているあいだだけ出す。「動画ごとに別の位置で再生している」ことは
+   バーが並んでいる絵がいちばん早く伝わる。連動 ON のあいだはつまみに緑の枠を
+   付け、1本動かすと全部動くことを見せる（鎖アイコンだけでは伝わらない） */
+#multiScrub{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;}
+#multiScrub[hidden]{display:none;}
+.msRow{display:flex;align-items:center;gap:8px;min-width:0;}
+.msRow[hidden]{display:none;}
+.msLabel{
+  flex:0 0 3.2em;font-size:.68rem;font-weight:800;letter-spacing:.02em;
+  color:var(--msColor,var(--sub));
+}
+.msTime{
+  flex-shrink:0;font-size:.68rem;color:var(--sub);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.msRow input[type=range]{
+  flex:1 1 120px;min-width:60px;-webkit-appearance:none;appearance:none;height:5px;
+  border-radius:3px;background:#2b3340;outline:none;cursor:pointer;
+}
+.msRow input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:#fff;cursor:pointer;box-shadow:0 0 0 3px rgba(0,0,0,.5);
+}
+.msRow input[type=range]::-moz-range-thumb{
+  width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
+  box-shadow:0 0 0 3px rgba(0,0,0,.5);
+}
+/* 連動中。全部のつまみが緑の枠になり、1本動かすと全部動く */
+#multiScrub.linked input[type=range]::-webkit-slider-thumb{box-shadow:0 0 0 3px var(--ok);}
+#multiScrub.linked input[type=range]::-moz-range-thumb{box-shadow:0 0 0 3px var(--ok);}
+
 /* アーカイブの経過 / 全体。ライブでは出さない（軸が LIVE端からの遅れのため）*/
 #posLabel{
   flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--sub);
@@ -727,7 +759,8 @@ body.paused #playBtn .iconPlay{display:block;}
   body.touch #toggleMore{order:2;}
   body.touch .barGrid > [data-aud]{order:3;}
   body.touch #mix{order:4;}
-  body.touch #timeline{order:5;grid-column:1 / -1;}
+  body.touch #multiScrub{order:5;grid-column:1 / -1;}
+  body.touch #timeline{order:6;grid-column:1 / -1;}
   body.touch .barGrid > [data-aud="main"],
   body.touch .barGrid > [data-aud="a"],
   body.touch .barGrid > [data-aud="b"]{order:3;}
@@ -745,6 +778,9 @@ body.paused #playBtn .iconPlay{display:block;}
   /* シークバーだけを1行目に回して全幅で使う。数時間のアーカイブを指で
      送るので、幅がそのまま操作精度になる。操作類は2行目に流す */
   #timeline{flex-wrap:wrap;row-gap:8px;}
+  .msTime{display:none;}          /* 幅はバーに回す。時間は操作行に出ている */
+  .msLabel{flex:0 0 2.8em;}
+  .msRow input[type=range]{height:6px;}
   #timeline > #scrub{order:-1;flex:1 1 100%;min-width:100%;height:6px;}
   #timeline > #golive{margin-left:auto;}
   #offsetLabel{min-width:4.4em;font-size:.75rem;}

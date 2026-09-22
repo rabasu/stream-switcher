@@ -160,6 +160,25 @@
     <button class="pill srcBtn" data-vid="a" data-k="a">VC-A<kbd>2</kbd></button>
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
     <div class="barTail" id="videoTail">
+      <!-- ズレを付けているあいだだけ出る、動画ごとのシークバー。
+           1本ずつ頭出しでき、連動 ON なら一緒に動くのが目に見える -->
+      <div id="multiScrub" hidden>
+        <div class="msRow" data-ms="main" hidden>
+          <span class="msLabel">MAIN</span>
+          <input type="range" min="0" max="600" value="0" step="1" aria-label="MAIN の再生位置">
+          <span class="msTime"></span>
+        </div>
+        <div class="msRow" data-ms="a" hidden>
+          <span class="msLabel">VC-A</span>
+          <input type="range" min="0" max="600" value="0" step="1" aria-label="VC-A の再生位置">
+          <span class="msTime"></span>
+        </div>
+        <div class="msRow" data-ms="b" hidden>
+          <span class="msLabel">VC-B</span>
+          <input type="range" min="0" max="600" value="0" step="1" aria-label="VC-B の再生位置">
+          <span class="msTime"></span>
+        </div>
+      </div>
       <div id="timeline">
         <button type="button" id="playBtn" title="一時停止 (K)" aria-label="一時停止">
           <svg class="iconPause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
