@@ -168,6 +168,9 @@ function build(ids, withSound){
            シークがクランプされた、といった食い違いを画面に出すため */
         onStateChange: ev => {
           stateOf[k] = ev.data;
+          // 配信終了は状態変化として来る。アーカイブへの切り替わりを
+          // 間引き待ちさせず、その場で読み直す
+          probeWall[k] = 0;
           renderTransport();
         },
         onError: ev => {
@@ -633,6 +636,14 @@ function setVolume(v, silent){
    シークは巻き戻せる配信にだけ掛け、戻せない配信は LIVE のまま流す。
    本配信だけ戻せるときに、戻せない同時視聴の遅れへ本配信を合わせる、
    という使い方ができるよう、あえて全体を止めずに片側だけ動かす。
+
+   原則4: 巻き戻しの可否も配信中かどうかも、見ている最中に変わる。
+   配信が終わってアーカイブになれば、DVR を無効にしていた配信でも自由に
+   シークできる（本家と同じ）。可否は一度読んだら終わりではなく読み直す。
+   アーカイブになった配信は LIVE端の推定をやめ、getDuration() を終端として
+   使う（原則1の禁止はライブに限った話。終わった動画の getDuration() は
+   再生位置と同じ軸に乗る）。推定のままだと一時停止中も終端が実時間で
+   伸び続け、遅れ表示が勝手に増えていく。
    ================================================================ */
 const ST = {UNSTARTED:-1, ENDED:0, PLAYING:1, PAUSED:2, BUFFERING:3, CUED:5};
 const SETTLE_MS = 2000;        // コマンド発行後、実状態が追いつくのを待つ時間
@@ -650,9 +661,13 @@ let verifyTimer = null;
 let transportSeq = 0;          // 操作の通し番号。遅れて届く後処理が新しい操作を踏まないため
 const trim = {main:0, a:0, b:0};
 const stateOf = {main:ST.UNSTARTED, a:ST.UNSTARTED, b:ST.UNSTARTED};
+const REPROBE_MS = 2000;       // 巻き戻し可否 / 配信中かを読み直す間隔
 /* 配信ごとの巻き戻し可否。true = 戻せる / false = 戻せない /
    null = まだ分からない（分からないうちは戻せるものとして扱う） */
 const canRewind = {main:null, a:null, b:null};
+/* 配信中か。false = アーカイブ（配信終了後） / null = まだ分からない */
+const isLiveNow = {main:null, a:null, b:null};
+const probeWall = {main:0, a:0, b:0};  // 次に読み直してよい performance.now() の ms
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
    持ち、経過実時間で外挿する。ライブの LIVE端は再生状態にも再生速度にも
    関係なく実時間と同じ速さで進むので、外挿は常に1倍速でよい。 */
@@ -672,6 +687,8 @@ function resetTransport(){
     trim[k] = 0;
     stateOf[k] = ST.UNSTARTED;
     canRewind[k] = null;
+    isLiveNow[k] = null;
+    probeWall[k] = 0;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
     const el = document.getElementById('tr-'+k);
@@ -682,25 +699,59 @@ function markCommand(){ settleUntil = performance.now() + SETTLE_MS; }
 function settling(){ return performance.now() < settleUntil; }
 function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
 
-/* 巻き戻しの可否を読む。公式 API には無いが、getVideoData() の isLive /
-   allowLiveDvr で分かる（実機で確認済み）。読めない環境では null のまま */
-function readRewind(k){
-  if(canRewind[k] !== null) return canRewind[k];
+/* 巻き戻しの可否と配信中かを読む。公式 API には無いが、getVideoData() の
+   isLive / allowLiveDvr で分かる（実機で確認済み）。読めない環境では null のまま。
+
+   一度読んだ値を持ち続けないこと。配信が終わってアーカイブになると
+   isLive が下り、DVR を無効にしていた配信でも巻き戻せるようになる。
+   初回の false を握ったままだと、アーカイブになってもシークバーを
+   無効にし続けてしまう（実際にこの不具合を出している） */
+function probeVideoData(k){
   const p = players[k];
-  if(!p || !ready[k] || typeof p.getVideoData !== 'function') return null;
+  if(!p || !ready[k] || typeof p.getVideoData !== 'function') return;
+  const now = performance.now();
+  if(now < probeWall[k]) return;             // 描画のたびに呼ばれるので間引く
+  probeWall[k] = now + REPROBE_MS;
+  let vd = null;
+  try{ vd = p.getVideoData(); }catch(e){ return; }
+  if(!vd || typeof vd.isLive !== 'boolean') return;
+  isLiveNow[k] = vd.isLive;
+  // アーカイブは自由にシークできる。ライブは配信者の DVR 設定次第
+  const next = vd.isLive ? vd.allowLiveDvr !== false : true;
+  if(next === canRewind[k]) return;
+  const was = canRewind[k];
+  canRewind[k] = next;
+  if(was === false && next){
+    // 「戻せない」と案内した後で戻せるようになった。黙って切り替えると
+    // 画面が不可のままだと思われるので、変わったことを伝える。
+    // 描画し直しは 300ms ごとの定期更新に任せる（ここは描画中からも呼ばれる）
+    setStatusLine(SRC_LABEL[k] + ' の配信が終わりました。アーカイブになったので巻き戻せます');
+  }
+}
+function readRewind(k){ probeVideoData(k); return canRewind[k]; }
+/* 配信が終わってアーカイブになっているか */
+function isArchive(k){ probeVideoData(k); return isLiveNow[k] === false; }
+/* アーカイブの終端。ライブと違い getDuration() が再生位置と同じ軸に乗る */
+function archiveEnd(k){
+  const p = players[k];
+  if(!p || typeof p.getDuration !== 'function') return 0;
   try{
-    const vd = p.getVideoData();
-    if(!vd || typeof vd.isLive !== 'boolean') return null;
-    // アーカイブは自由にシークできる。ライブは配信者の DVR 設定次第
-    canRewind[k] = vd.isLive ? vd.allowLiveDvr !== false : true;
-  }catch(e){}
-  return canRewind[k];
+    const d = p.getDuration();
+    return (typeof d === 'number' && isFinite(d) && d > 0) ? d : 0;
+  }catch(e){ return 0; }
 }
 /* シークを掛けてよい配信か */
 function seekable(k){ return !!players[k] && ready[k] && readRewind(k) !== false; }
 /* 読み込んでいて、巻き戻せないと分かっている配信 */
 function noRewindKeys(){ return KEYS.filter(k => players[k] && ready[k] && readRewind(k) === false); }
 function noRewindMessage(keys){
+  // 配信が終わっているのに戻せないままなら、埋め込みがライブのまま残っている。
+  // アーカイブを読み直せば戻せるので、再読み込みを案内する
+  const ended = keys.filter(k => stateOf[k] === ST.ENDED);
+  if(ended.length === keys.length && keys.length){
+    return keys.map(k => SRC_LABEL[k]).join('・')
+      + ' の配信は終わりました。アーカイブで巻き戻すにはページを再読み込みしてください';
+  }
   return keys.map(k => SRC_LABEL[k]).join('・') + ' は配信者が巻き戻しを無効にしているため、LIVE のままです';
 }
 
@@ -722,6 +773,13 @@ function playerTime(k){
    （LIVE端でズレ微調整が効かないデグレの原因）。trim は seek 先と
    遅れ秒数を出すときにだけ足す。 */
 function liveEdge(k){
+  if(isArchive(k)){
+    // アーカイブは終端が伸びない。推定を続けると一時停止中に遅れが
+    // 勝手に増え、seek 先も終端の先を指してしまう
+    const end = archiveEnd(k);
+    if(end > 0) return end;
+    // 取れないときだけ従来の推定へ落とす
+  }
   const now = performance.now();
   const cur = playerTime(k);
   if(!edgeWall[k]){
@@ -1033,13 +1091,20 @@ function renderTransport(){
 
   const label = document.getElementById('offsetLabel');
   const btn = document.getElementById('golive');
-  const atLive = off < LIVE_BADGE && !paused;
-  label.textContent = atLive ? 'LIVE' : '− ' + fmt(off);
+  // アーカイブを見ているあいだは LIVE と言わない（原則2・原則4）。
+  // 一時停止中は端にいても追いかけているわけではないので、ライブと同じ扱い
+  const archive = isArchive(videoSrc);
+  const atEnd = off < LIVE_BADGE && !paused;
+  const atLive = atEnd && !archive;
+  label.textContent = atEnd ? (archive ? '最後' : 'LIVE') : '− ' + fmt(off);
   btn.classList.toggle('live', atLive);
+  btn.title = archive ? 'アーカイブの最後へ (L)' : 'LIVEの最先端へ (L)';
   // LIVE 中も押せる。表示が LIVE でも実際には数秒遅れていることがある
-  btn.setAttribute('aria-label', atLive
-    ? 'LIVE を再生中。押すと最先端へ追いつき直します'
-    : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
+  btn.setAttribute('aria-label', atEnd
+    ? (archive ? 'アーカイブの最後を再生中。押すと最後へ戻ります'
+               : 'LIVE を再生中。押すと最先端へ追いつき直します')
+    : fmt(off) + (archive ? ' 手前を再生中。押すと最後へ進みます'
+                          : ' 遅れて再生中。押すと LIVE へ戻ります'));
 
   renderRate();
   renderTrim();
@@ -1086,7 +1151,8 @@ function renderDiag(){
                     + ' / ' + (linkVideo ? '音声+映像' : '音声のみ') + '\n',
     '巻き戻し    ' + (KEYS.filter(k => players[k]).map(k => {
                       const r = readRewind(k);
-                      return SRC_LABEL[k] + (r === false ? ' 不可' : r === true ? ' 可' : ' ?');
+                      return SRC_LABEL[k] + (r === false ? ' 不可' : r === true ? ' 可' : ' ?')
+                             + (isArchive(k) ? '(アーカイブ)' : '');
                     }).join(' / ') || '—')
   );
 }

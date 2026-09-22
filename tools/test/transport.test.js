@@ -427,6 +427,67 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 19. 配信が終わってアーカイブになったら、巻き戻せるようになる。
+         以前は起動時に一度読んだ「戻せない」を持ち続けていたため、アーカイブに
+         なってもシークバーが無効のままだった（本家では触れるのに戻せない） */
+  {
+    const { ctx, page } = await session({ keys: ['main'], noDvr: [MAIN_ID] });
+    const before = await page.evaluate(() => document.getElementById('scrub').disabled);
+    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
+    await sleep(2500);                          // 読み直しの間引きを通す
+    const after = await page.evaluate(() => ({
+      scrub: document.getElementById('scrub').disabled,
+      seek: Array.from(document.querySelectorAll('[data-seek]')).some(b => b.disabled)
+    }));
+    check('アーカイブになったらシークバーと秒送りが有効に戻る',
+          before && !after.scrub && !after.seek,
+          '配信中 disabled=' + before + ' → アーカイブ後 scrub=' + after.scrub + ' / 秒送り=' + after.seek);
+
+    const pos = () => page.evaluate(() => window.__FAKE.players['p-main'].getCurrentTime());
+    const t0 = await pos();
+    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+    await sleep(1200);
+    const t1 = await pos();
+    check('アーカイブになった配信は実際に巻き戻せる',
+          t0 - t1 > 25 && t0 - t1 < 35,
+          '再生位置が ' + (t0 - t1).toFixed(1) + '秒 戻った（30秒であるべき）');
+    await ctx.close();
+  }
+
+  /* 20. アーカイブの終端は伸びない。一時停止しても遅れ表示が増えないこと。
+         LIVE端の推定（実時間で1倍速に外挿）をアーカイブにも使うと、止めている
+         あいだ中ずっと遅れが増え続け、seek 先も終端の先を指してしまう */
+  {
+    const { ctx, page } = await session({ keys: ['main'] });
+    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
+    await sleep(1500);
+    await page.evaluate(() => document.getElementById('playBtn').click());
+    await sleep(1000);
+    const a = await label(page);
+    await sleep(4000);
+    const b = await label(page);
+    check('アーカイブを一時停止しても遅れ表示が増えていかない',
+          a === b,
+          '停止直後 "' + a + '" → 4秒後 "' + b + '"');
+    await ctx.close();
+  }
+
+  /* 21. アーカイブを見ているあいだは LIVE と表示しない（実状態を出す） */
+  {
+    const { ctx, page } = await session({ keys: ['main'] });
+    const live = await label(page);
+    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
+    await sleep(2500);
+    const arch = await page.evaluate(() => ({
+      label: document.getElementById('offsetLabel').textContent,
+      live: document.getElementById('golive').classList.contains('live')
+    }));
+    check('アーカイブでは LIVE バッジを出さない',
+          live.indexOf('LIVE') >= 0 && arch.label.indexOf('LIVE') < 0 && !arch.live,
+          '配信中 "' + live + '" → アーカイブ後 "' + arch.label + '"（live クラス=' + arch.live + '）');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 
