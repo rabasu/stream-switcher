@@ -759,14 +759,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const { ctx, page } = await session({ keys: ['main'] });
     const ctlOpacity = () => page.evaluate(() =>
       getComputedStyle(document.getElementById('centerControls')).opacity);
-    await page.hover('#shield');
+    /* 中央はボタンが覆っているので、要素の中心を狙う hover() は使えない。
+       映像の隅 → 10秒戻る → 再生ボタン と、座標でカーソルを動かす */
+    const moveTo = async sel => {
+      const b = await page.locator(sel).boundingBox();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await sleep(600);
+    };
+    await page.mouse.move(120, 220);          // 映像の上（中央から離れた場所）
     await sleep(600);
     const onVideo = await ctlOpacity();
-    await page.hover('#back10');
-    await sleep(600);
+    await moveTo('#back10');
     const onBack = await ctlOpacity();
-    await page.hover('#centerBtn');
-    await sleep(600);
+    await moveTo('#centerBtn');
     const onPlay = await ctlOpacity();
     check('PC でボタンに乗せても、中央の操作が消えない',
           onVideo === '1' && onBack === '1' && onPlay === '1',
