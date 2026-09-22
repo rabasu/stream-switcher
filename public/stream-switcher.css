@@ -152,6 +152,19 @@ body:not(.touch).paused #centerBtn{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
 
+/* ===== 配信終了の表示 ===== */
+#endedNote{
+  position:fixed;left:50%;top:calc(env(safe-area-inset-top, 0px) + 20px);
+  transform:translateX(-50%);z-index:19;
+  padding:10px 20px;border-radius:999px;pointer-events:none;
+  background:rgba(7,9,12,.82);color:#fff;backdrop-filter:blur(4px);
+  font-size:.84rem;font-weight:700;letter-spacing:.02em;
+  box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.12);
+}
+#endedNote[hidden]{display:none;}
+/* 導入画面ではまだ何も再生していない */
+#splash:not(.gone) ~ #endedNote{display:none;}
+
 /* ===== 読み込み中 ===== */
 #loading{
   position:fixed;inset:0;z-index:22;
@@ -517,6 +530,12 @@ body.paused #playBtn .iconPlay{display:block;}
 #timeline input[type=range]::-moz-range-thumb{
   width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
 }
+/* アーカイブの経過 / 全体。ライブでは出さない（軸が LIVE端からの遅れのため）*/
+#posLabel{
+  flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--sub);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+#posLabel[hidden]{display:none;}
 /* LIVE 表示と LIVE 復帰ボタンは同じ情報なので1つにまとめてある。
    LIVE 中でも押せる（表示上 LIVE でも実際は少し遅れていることがあるため）*/
 #golive{
@@ -536,6 +555,11 @@ body.paused #playBtn .iconPlay{display:block;}
 }
 #golive.live .liveDot{opacity:1;animation:pulse 1.6s infinite;}
 #golive.live:hover{border-color:var(--live);color:var(--live);}
+/* アーカイブでは LIVE ではなく SYNC（他の動画を今の位置へ揃える）。
+   LIVE の点は意味が無いので消す */
+#golive[hidden]{display:none;}          /* display:flex を上書きする */
+#golive.sync .liveDot{display:none;}
+#golive.sync #offsetLabel{min-width:3.2em;}
 
 /* ===== 音量 ===== */
 #volWrap{display:flex;align-items:center;gap:8px;flex:0 0 auto;}

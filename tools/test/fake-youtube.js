@@ -4,6 +4,9 @@
      - seekTo() は [LIVE端-DVR, LIVE端] にクランプされる（先を指すと LIVE端に張り付く）
      - 再生が始まるまで getCurrentTime() は 0 を返す
      - 配信者が DVR を無効にしたライブは seekTo を黙って無視する（CFG.noDvr）
+     - 配信が終わると再生が止まり ENDED になる（endStream()）
+     - アーカイブ（CFG.archive）は普通の動画。isLive が false で、getDuration() は
+       再生位置と同じ軸の「終端」を返し、頭から終端まで自由にシークできる
    本物に無いもの: seek の着地遅延、セグメント粒度、LIVE端への自動追いつき。
    ここで通っても実機で動く保証にはならないので、トランスポートを変えたら
    実際の配信でも確かめること。 */
@@ -28,6 +31,11 @@ window.__FAKE = { players: {} };
     this.muted = true;
     this.posBase = 0;
     this.posWall = now();
+    // アーカイブ（配信済みの動画）は endAt で長さが決まり、伸びない
+    this.live = (CFG.archive || []).indexOf(opt.videoId) < 0;
+    // 長さは動画ごとに変えられる（CFG.lengths）。既定は ELAPSED0
+    this.endAt = this.live ? null
+               : ((CFG.lengths && CFG.lengths[opt.videoId]) || ELAPSED0);
     this.state = -1;
     this.seekLog = [];
     const host = document.getElementById(hostId);
@@ -42,9 +50,20 @@ window.__FAKE = { players: {} };
       if(self.events.onReady) self.events.onReady({target: self});
     }, 30);
   }
-  // LIVE端。配信開始からの経過秒。実時間と同じ速さで進む
-  FakePlayer.prototype.edge = function(){ return ELAPSED0 + (now() - this.t0); };
-  FakePlayer.prototype.floor = function(){ return Math.max(0, this.edge() - DVR); };
+  // LIVE端。配信開始からの経過秒。実時間と同じ速さで進む。
+  // アーカイブになったら伸びない（終端で固定）
+  FakePlayer.prototype.edge = function(){
+    return this.endAt != null ? this.endAt : ELAPSED0 + (now() - this.t0);
+  };
+  FakePlayer.prototype.floor = function(){
+    return this.live ? Math.max(0, this.edge() - DVR) : 0;   // アーカイブは先頭まで戻れる
+  };
+  /* 配信終了。本物は再生が止まって ENDED になる。アーカイブへの切り替わりは
+     ページを読み直したときに起きるので、ここでは再現しない */
+  FakePlayer.prototype.endStream = function(){
+    this.posBase = this.pos(); this.posWall = now(); this.playing = false;
+    this.setState(0);
+  };
   FakePlayer.prototype.setState = function(s){
     if(this.state === s) return;
     this.state = s;
@@ -56,12 +75,18 @@ window.__FAKE = { players: {} };
     return Math.min(p, this.edge());       // LIVE端より先は再生できない
   };
   FakePlayer.prototype.getCurrentTime = function(){ return this.pos(); };
-  // ここが不具合の核。再生位置と同じ軸に乗らない値を返す
-  FakePlayer.prototype.getDuration = function(){ return Math.max(PAD, this.edge()); };
-  // 配信者が DVR を無効にしたライブ（CFG.noDvr に動画IDを並べる）
-  FakePlayer.prototype.noDvr = function(){ return (CFG.noDvr || []).indexOf(this.videoId) >= 0; };
+  // ここが不具合の核。ライブでは再生位置と同じ軸に乗らない値を返す。
+  // アーカイブになると素直に終端を返す
+  FakePlayer.prototype.getDuration = function(){
+    return this.live ? Math.max(PAD, this.edge()) : this.endAt;
+  };
+  // 配信者が DVR を無効にしたライブ（CFG.noDvr に動画IDを並べる）。
+  // 制限が掛かるのは配信中だけ
+  FakePlayer.prototype.noDvr = function(){
+    return this.live && (CFG.noDvr || []).indexOf(this.videoId) >= 0;
+  };
   FakePlayer.prototype.getVideoData = function(){
-    return { video_id: this.videoId, isLive: true, allowLiveDvr: !this.noDvr() };
+    return { video_id: this.videoId, isLive: this.live, allowLiveDvr: !this.noDvr() };
   };
   FakePlayer.prototype.seekTo = function(t){
     const lo = this.floor(), hi = this.edge();
@@ -74,9 +99,9 @@ window.__FAKE = { players: {} };
   };
   FakePlayer.prototype.playVideo = function(){
     if(!this.started){
-      // 再生が始まった瞬間に LIVE端へ着く（本物のライブと同じ）
+      // ライブは再生が始まった瞬間に LIVE端へ着く。アーカイブは頭から
       this.started = true;
-      this.posBase = this.edge();
+      this.posBase = this.live ? this.edge() : 0;
       this.posWall = now();
     }
     if(!this.playing){ this.posBase = this.pos(); this.posWall = now(); this.playing = true; }
