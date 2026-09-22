@@ -1666,7 +1666,15 @@ document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click',
 document.querySelectorAll('[data-aud]').forEach(
   b => b.addEventListener('click', () => toggleAudioKey(b.dataset.aud)));
 document.getElementById('mix').addEventListener('click', toggleMix);
-document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
+document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => {
+  // 映像の上のボタンは、隠れている操作を出したタップでは押さない（中央の
+  // 再生ボタンと同じ扱い）。押せたときは、続けて押せるよう表示を延長する
+  if(b.classList.contains('centerCtl')){
+    if(swallowCenterClick) return;
+    showCenter();
+  }
+  seekRelative(parseFloat(b.dataset.seek));
+}));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
 

@@ -92,9 +92,21 @@
 </div>
 
 <div id="setupAnchor" hidden></div>
-<button type="button" id="centerBtn" title="一時停止 (K)" aria-label="一時停止">
+<!-- 映像の中央に出す操作。再生 / 一時停止と、その左右に 10秒送り。
+     出す条件は3つとも同じ（PC はカーソルが映像上にあるあいだ、タッチは
+     画面を触ってから少しのあいだ）。10秒送りは data-seek なので、
+     まとめてシークの ON/OFF も巻き戻せない配信の判定もそのまま効く -->
+<button type="button" id="back10" class="centerCtl" data-seek="10" title="10秒戻る (←)" aria-label="10秒戻る">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+  <span class="ctlNum">10</span>
+</button>
+<button type="button" id="centerBtn" class="centerCtl" title="一時停止 (K)" aria-label="一時停止">
   <svg class="iconPause" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
   <svg class="iconPlay" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+</button>
+<button type="button" id="fwd10" class="centerCtl" data-seek="-10" title="10秒進む (→)" aria-label="10秒進む">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/></svg>
+  <span class="ctlNum">10</span>
 </button>
 
 <!-- 共有URLから開くと自動再生のため無音で始まる。押せば解決するチップを
@@ -287,7 +299,7 @@
 
       <tr><th colspan="2">見返す</th></tr>
       <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像にカーソルを置くと中央に出るボタンでも同じです</td></tr>
-      <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）。配信者が巻き戻しを無効にしている配信は LIVE のまま流れ、戻せる配信だけが動きます（診断パネル D で確認できます）</td></tr>
+      <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）。映像の中央に出る ⟲10 / 10⟳ のボタンでも同じです。配信者が巻き戻しを無効にしている配信は LIVE のまま流れ、戻せる配信だけが動きます（診断パネル D で確認できます）</td></tr>
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
       <tr><td>まとめてシーク</td><td>再生ボタンの隣にある鎖のアイコンです。ON のあいだは、シークすると全部が「いまのズレを保ったまま」同じだけ動きます。OFF にすると今映しているものだけが動くので、開始時刻が違うアーカイブを1本ずつ頭出しして揃えられます。揃え終えたら ON に戻して見てください（揃え直したいときは SYNC）</td></tr>
 
@@ -306,6 +318,7 @@
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます。アーカイブでは SYNC になり、他の動画を今映している動画と同じ位置へ揃えます</td></tr>
       <tr><td>まとめてシーク</td><td>再生ボタンの隣にある鎖のアイコンです。OFF（鎖が切れた赤い絵）にすると今映しているものだけがシークできるので、開始時刻が違うアーカイブを1本ずつ頭出しできます。ON に戻すと、そのズレを保ったまま全部が一緒に動きます</td></tr>
       <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
+      <tr><td>10秒送り</td><td>映像を軽く触ると、中央のボタンの左右に ⟲10 / 10⟳ が出ます。シークバーでの細かい調整が難しいときに使ってください。まとめてシークが OFF なら、今映しているものだけが動きます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>
       <tr><td>通信量</td><td>配信を3本まで同時に受信します。モバイル回線ではご注意ください</td></tr>
     </table>

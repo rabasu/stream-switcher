@@ -112,25 +112,39 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 #setup .ghost{background:transparent;border:1px solid var(--line);color:var(--sub);font-weight:500;}
 #setup .ghost:hover{border-color:var(--sub);color:var(--text);}
 
-/* ===== 動画中央の再生 / 一時停止 =====
-   YouTube などと同じく、映像の中央を押して止める。操作パネル（#shield,
-   z5）より前、操作バー（z20）より後ろに置く。 */
-#centerBtn{
+/* ===== 動画中央の操作（10秒戻る / 再生・一時停止 / 10秒進む）=====
+   YouTube などと同じく、映像の中央を押して止める。左右の 10秒送りは、
+   シークバーでの細かい調整が難しいので並べて置く。出す条件は3つとも同じ。
+   操作パネル（#shield, z5）より前、操作バー（z20）より後ろに置く。 */
+.centerCtl{
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;
-  width:68px;height:68px;padding:0;border:none;border-radius:50%;cursor:pointer;
+  padding:0;border:none;border-radius:50%;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
   color:#fff;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
   box-shadow:0 4px 20px rgba(0,0,0,.45);
   transition:opacity .25s,background .15s;
 }
-#centerBtn:hover{background:rgba(0,0,0,.7);}
-#centerBtn:active{transform:translate(-50%,-50%) scale(.94);}
+#centerBtn{width:68px;height:68px;}
+/* 10秒送り。矢印の輪の中に秒数を置く、動画サイトでよくある形 */
+#back10,#fwd10{width:52px;height:52px;position:fixed;}
+#back10{left:calc(50% - 74px);}
+#fwd10{left:calc(50% + 74px);}
+#back10 svg,#fwd10 svg{width:30px;height:30px;}
+.ctlNum{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-42%);
+  font-size:.58rem;font-weight:800;letter-spacing:-.02em;pointer-events:none;
+}
+.centerCtl:hover{background:rgba(0,0,0,.7);}
+.centerCtl:active{transform:translate(-50%,-50%) scale(.94);}
+/* 全部が巻き戻せないときは押せない（renderRewind が落とす） */
+.centerCtl:disabled{opacity:.25;cursor:default;}
+.centerCtl:disabled:hover{background:rgba(0,0,0,.55);}
 #centerBtn .iconPlay{display:none;}
 body.paused #centerBtn .iconPause{display:none;}
 body.paused #centerBtn .iconPlay{display:block;}
 /* タッチは操作パネルと同時（横画面）か時間経過（縦画面）で隠す */
-body.touch.chrome-hidden #centerBtn,
-body.touch.center-hidden #centerBtn{opacity:0;pointer-events:none;}
+body.touch.chrome-hidden .centerCtl,
+body.touch.center-hidden .centerCtl{opacity:0;pointer-events:none;}
 
 /* PC はカーソルが動画中央に来たときだけ出す。押しやすいよう円を約2倍にし、
    透明なあいだも受け付けるので、中央に入った瞬間から押せる */
@@ -138,19 +152,26 @@ body:not(.touch) #centerBtn{
   width:136px;height:136px;opacity:0;
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
+body:not(.touch) #back10,body:not(.touch) #fwd10{
+  width:64px;height:64px;opacity:0;background:rgba(0,0,0,.42);
+}
+body:not(.touch) #back10{left:calc(50% - 106px);}
+body:not(.touch) #fwd10{left:calc(50% + 106px);}
 /* ボタンの上に載せたときだけ出るのでは狭すぎて見つからない。
    カーソルが映像の上にあるあいだは出しておく。#shield は映像の全面を
    覆っていて、上下のメニュー（z-20）やパネルはその上に乗っているので、
    メニューの上へ来ると #shield が :hover でなくなり自然に引っ込む。
    自分で UI を畳んだとき（chrome-hidden）は映像だけ見たいので出さない */
-body:not(.touch):not(.chrome-hidden) #shield:hover ~ #centerBtn{opacity:1;}
+body:not(.touch):not(.chrome-hidden) #shield:hover ~ .centerCtl{opacity:1;}
 /* ボタンに載っているあいだは濃くして、押せることを示す */
-body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
+body:not(.touch) .centerCtl:hover{opacity:1;background:rgba(0,0,0,.55);}
 /* 止めているあいだは出しておく。出ていないと、止まっていることも
    戻し方も分からない */
-body:not(.touch).paused #centerBtn{opacity:1;}
+body:not(.touch).paused .centerCtl{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
-#splash:not(.gone) ~ #centerBtn{display:none;}
+body:not(.touch) #back10 svg,body:not(.touch) #fwd10 svg{width:34px;height:34px;}
+body:not(.touch) .ctlNum{font-size:.66rem;}
+#splash:not(.gone) ~ .centerCtl{display:none;}
 
 /* ===== 配信終了の表示 ===== */
 #endedNote{

@@ -694,6 +694,62 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 27. 映像の上の 10秒送り。シークバーだけでは細かい調整ができないので、
+         再生ボタンと同じ条件で出す。まとめてシークの ON/OFF も反映する */
+  {
+    const A_ID = 'BBBBBBBBBBB';
+    const { ctx, page } = await session({ keys: ['main','a'], phone: true });
+    const pos = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']){
+        const p = window.__FAKE.players['p-'+k];
+        o[k] = p.edge() - p.getCurrentTime();     // LIVE端からの遅れ
+      }
+      return o;
+    });
+    // 出る条件が再生ボタンと同じであること（タッチは触ってから少しのあいだ）
+    const vis = await page.evaluate(() => {
+      const read = () => ['centerBtn','back10','fwd10']
+        .map(id => getComputedStyle(document.getElementById(id)).opacity);
+      document.body.classList.add('center-hidden');
+      const hidden = read();
+      document.body.classList.remove('center-hidden');
+      return { hidden, shown: read() };
+    });
+    check('10秒送りは、中央の再生ボタンと同じ条件で出入りする',
+          vis.hidden.every(o => o === '0') && vis.shown.every(o => o === '1'),
+          '隠すとき ' + vis.hidden.join('/') + ' → 出すとき ' + vis.shown.join('/'));
+
+    const before = await pos();
+    await page.evaluate(() => document.getElementById('back10').click());
+    await sleep(1500);
+    const back = await pos();
+    check('映像の上の 10秒戻るで、実際に10秒戻る（まとめてシーク ON なら全部）',
+          Math.abs(back.main - before.main - 10) < 4 && Math.abs(back.a - before.a - 10) < 4,
+          'MAIN ' + (back.main - before.main).toFixed(1) + '秒 / VC-A '
+            + (back.a - before.a).toFixed(1) + '秒 戻った');
+
+    await page.evaluate(() => document.getElementById('fwd10').click());
+    await sleep(1500);
+    const fwd = await pos();
+    check('映像の上の 10秒進むで、戻したぶんが戻る',
+          Math.abs(fwd.main - before.main) < 4,
+          '遅れ ' + before.main.toFixed(1) + '秒 → ' + back.main.toFixed(1)
+            + '秒 → ' + fwd.main.toFixed(1) + '秒');
+
+    // まとめてシークを切ると、今映しているものだけ
+    await page.evaluate(() => document.getElementById('groupSeek').click());
+    const b2 = await pos();
+    await page.evaluate(() => document.getElementById('back10').click());
+    await sleep(1500);
+    const solo = await pos();
+    check('まとめてシーク OFF なら、10秒送りも今映しているものだけに効く',
+          Math.abs(solo.main - b2.main - 10) < 4 && Math.abs(solo.a - b2.a) < 4,
+          'MAIN ' + (solo.main - b2.main).toFixed(1) + '秒 / VC-A '
+            + (solo.a - b2.a).toFixed(1) + '秒（VC-A は 0 であるべき）');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 
