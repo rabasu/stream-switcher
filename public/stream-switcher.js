@@ -1121,19 +1121,17 @@ function reconcileTransport(){
   if(!paused && m < LIVE_EPS){ targetOffset = 0; return; }
   if(Math.abs(m - targetOffset) > OFFSET_SNAP) targetOffset = m;
 }
-/* まとめてシーク。2本以上読み込んでいないと意味が無いので、そのときは落とす */
+/* まとめてシーク。1本だけなら意味が無いので、場所を取らずに消す
+   （シークバーの幅をできるだけ残す） */
 function renderGroupSeek(){
   const b = document.getElementById('groupSeek');
   if(!b) return;
-  const many = KEYS.filter(k => players[k]).length > 1;
-  b.disabled = !many;
-  b.setAttribute('aria-checked', String(groupSeek));
-  b.title = !many
-    ? '配信 / 動画を2本以上読み込むと使えます'
-    : groupSeek
-      ? 'まとめてシーク ON — シークは全部に効きます（ズレは保ったまま）'
-      : 'まとめてシーク OFF — シークは今映しているものだけに効きます。'
-        + '開始時刻が違う動画の頭出しに使います';
+  b.hidden = KEYS.filter(k => players[k]).length < 2;
+  b.setAttribute('aria-pressed', String(groupSeek));
+  b.title = groupSeek
+    ? 'まとめてシーク ON — シークは全部に効きます（ズレは保ったまま）'
+    : 'まとめてシーク OFF — シークは今映しているものだけに効きます。'
+      + '開始時刻が違う動画の頭出しに使います';
 }
 function toggleGroupSeek(){
   groupSeek = !groupSeek;

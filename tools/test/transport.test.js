@@ -58,7 +58,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const browser = await chromium.launch(launchOpts);
 
   async function session(cfg){
-    const ctx = await browser.newContext({ viewport:{width:1280, height:800} });
+    const ctx = await browser.newContext(
+      (cfg && cfg.phone)
+        // スマホ想定。isTouch は (hover:none) and (pointer:coarse) で判定される
+        ? { viewport:{width:390, height:844}, hasTouch:true, isMobile:true, deviceScaleFactor:3 }
+        : { viewport:{width:1280, height:800} });
     await ctx.addInitScript('window.__FAKECFG = ' + JSON.stringify(cfg || {}) + ';');
     await ctx.addInitScript(FAKE);
     const page = await ctx.newPage();
@@ -81,6 +85,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return p.edge() - p.getCurrentTime();
   });
   const label = page => page.textContent('#offsetLabel');
+  // アーカイブの「経過 / 全体」。ピルは SYNC 固定なので、位置はこちらで見る
+  const posText = page => page.textContent('#posLabel');
 
   console.log('\n=== ' + PUB + ' ===');
 
@@ -462,9 +468,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     await page.evaluate(() => document.getElementById('playBtn').click());
     await sleep(1000);
-    const a = await label(page);
+    const a = await posText(page);
     await sleep(4000);
-    const b = await label(page);
+    const b = await posText(page);
     check('アーカイブを一時停止しても遅れ表示が増えていかない',
           a === b,
           '停止直後 "' + a + '" → 4秒後 "' + b + '"');
@@ -590,6 +596,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     check('SYNC で、他の動画が今映している動画と同じ位置に揃う',
           Math.abs(synced.main - synced.a) < 8,
           'MAIN ' + synced.main.toFixed(1) + '秒 / VC-A ' + synced.a.toFixed(1) + '秒');
+    await ctx.close();
+  }
+
+  /* 25. スマホでシークバーが画面幅のほとんどを取ること。数時間のアーカイブを
+         指で送るので、幅がそのまま操作精度になる。操作類（再生 / 連動 /
+         経過 / SYNC）と同じ行に並べると、バーが画面の半分も無くなっていた */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], archive: [MAIN_ID], phone: true });
+    const m = await page.evaluate(() => {
+      const r = document.getElementById('scrub').getBoundingClientRect();
+      const pill = document.getElementById('golive').getBoundingClientRect();
+      return { w: r.width, vw: window.innerWidth, barBottom: r.bottom, pillTop: pill.top };
+    });
+    check('スマホではシークバーが画面幅のほとんどを取る',
+          m.w / m.vw > 0.8,
+          'バー ' + Math.round(m.w) + 'px / 画面 ' + m.vw + 'px（'
+            + Math.round(m.w / m.vw * 100) + '%）');
+    check('スマホではシークバーと操作類が同じ行に並ばない',
+          m.barBottom <= m.pillTop + 1,
+          'バーの下端 ' + Math.round(m.barBottom) + 'px / ボタンの上端 ' + Math.round(m.pillTop) + 'px');
     await ctx.close();
   }
 
