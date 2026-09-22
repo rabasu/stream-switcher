@@ -1006,11 +1006,16 @@ function fmt(sec){
 }
 
 /* スライダーの幅 = さかのぼれる長さの目安。配信開始からの経過（= LIVE端）を
-   使い、巻き戻せる配信のうちいちばん短いものに合わせる。2時間で頭打ち */
+   使い、巻き戻せる配信のうちいちばん短いものに合わせる。2時間で頭打ち。
+   アーカイブだけを見ているときは頭打ちにしない。2時間の上限はライブで
+   さかのぼれる範囲の目安であって、動画の長さを切る理由は無い（切ると
+   2時間を超える動画で、頭のほうがスライダーの左端に潰れて動かせなくなる） */
 function scrubSpan(){
-  const edges = KEYS.filter(seekable).map(k => liveEdge(k)).filter(d => d > 0);
+  const keys = KEYS.filter(seekable);
+  const edges = keys.map(k => liveEdge(k)).filter(d => d > 0);
   const span = edges.length ? Math.min.apply(null, edges) : 600;
-  return Math.round(Math.max(60, Math.min(span, 7200)));
+  const cap = keys.length && keys.every(isArchive) ? span : 7200;
+  return Math.round(Math.max(60, Math.min(span, cap)));
 }
 /* プレーヤーの実状態を UI に取り込む。ここが「押した結果」と実状態の
    突き合わせ点で、シークや再生が効かなかったことを画面に出す役目を持つ */
@@ -1081,20 +1086,24 @@ function renderTransport(){
 
   const label = document.getElementById('offsetLabel');
   const btn = document.getElementById('golive');
-  // アーカイブを見ているあいだは LIVE と言わない（原則2・原則4）。
-  // 一時停止中は端にいても追いかけているわけではないので、ライブと同じ扱い
+  /* アーカイブを見ているあいだは LIVE と言わない（原則2・原則4）。
+     ライブの軸は「LIVE端からの遅れ」だが、動画はふつう頭からの経過で見る。
+     スライダーは元から左端=先頭・右端=終端の絶対位置になっているので、
+     ラベルも終端までの残りではなく経過時間を出す */
   const archive = isArchive(videoSrc);
-  const atEnd = off < LIVE_BADGE && !paused;
+  const atEnd = off < LIVE_BADGE && !paused;   // 一時停止中は端にいても追わない
   const atLive = atEnd && !archive;
-  label.textContent = atEnd ? (archive ? '最後' : 'LIVE') : '− ' + fmt(off);
+  const end = liveEdge(videoSrc);
+  const elapsed = end > 0 ? Math.max(0, end - off) : 0;
+  label.textContent = archive ? fmt(elapsed) : (atEnd ? 'LIVE' : '− ' + fmt(off));
   btn.classList.toggle('live', atLive);
-  btn.title = archive ? 'アーカイブの最後へ (L)' : 'LIVEの最先端へ (L)';
+  btn.title = archive ? '動画の最後へ (L)' : 'LIVEの最先端へ (L)';
   // LIVE 中も押せる。表示が LIVE でも実際には数秒遅れていることがある
-  btn.setAttribute('aria-label', atEnd
-    ? (archive ? 'アーカイブの最後を再生中。押すと最後へ戻ります'
-               : 'LIVE を再生中。押すと最先端へ追いつき直します')
-    : fmt(off) + (archive ? ' 手前を再生中。押すと最後へ進みます'
-                          : ' 遅れて再生中。押すと LIVE へ戻ります'));
+  btn.setAttribute('aria-label', archive
+    ? fmt(elapsed) + ' 地点を再生中。押すと動画の最後へ飛びます'
+    : atEnd
+      ? 'LIVE を再生中。押すと最先端へ追いつき直します'
+      : fmt(off) + ' 遅れて再生中。押すと LIVE へ戻ります');
 
   renderRate();
   renderTrim();

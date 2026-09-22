@@ -471,16 +471,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
-  /* 21. アーカイブを見ているあいだは LIVE と表示しない（実状態を出す） */
+  /* 21. アーカイブは動画として見る。頭（左端）から始まり、ラベルは終端までの
+         残りではなく経過時間。LIVE バッジも出さない */
   {
     const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     const st = await page.evaluate(() => ({
       label: document.getElementById('offsetLabel').textContent,
-      live: document.getElementById('golive').classList.contains('live')
+      live: document.getElementById('golive').classList.contains('live'),
+      value: parseFloat(document.getElementById('scrub').value),
+      max: parseFloat(document.getElementById('scrub').max)
     }));
+    check('アーカイブはスライダーの左端（先頭）から始まり、経過時間を出す',
+          st.value < 20 && st.max > 500 && /^0:\d\d$/.test(st.label),
+          'つまみ ' + st.value + ' / ' + st.max + ' / 表示 "' + st.label + '"');
     check('アーカイブでは LIVE バッジを出さない',
           st.label.indexOf('LIVE') < 0 && !st.live,
           '表示 "' + st.label + '"（live クラス=' + st.live + '）');
+    await ctx.close();
+  }
+
+  /* 22. 2時間を超えるアーカイブでも、スライダーは動画の長さぶん開く。
+         2時間の頭打ちはライブでさかのぼれる範囲の目安で、動画には関係ない */
+  {
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID], elapsed: 10000 });
+    const max = await page.evaluate(() => parseFloat(document.getElementById('scrub').max));
+    check('2時間を超えるアーカイブでもスライダーが長さぶん開く',
+          Math.abs(max - 10000) < 60,
+          '幅 ' + max + '秒（動画の長さ 10000秒）');
     await ctx.close();
   }
 
@@ -490,7 +507,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return !el || el.hidden;
   });
 
-  /* 22. 配信が終わったら、そのことを映像の上に出す。巻き戻せるかどうかとは
+  /* 23. 配信が終わったら、そのことを映像の上に出す。巻き戻せるかどうかとは
          関係なく出し、巻き戻し始めたら（シークバーに触れたら）消す */
   for(const noDvr of [[], [MAIN_ID]]){
     const { ctx, page } = await session({ keys: ['main'], noDvr });
