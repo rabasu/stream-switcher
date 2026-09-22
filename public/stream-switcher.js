@@ -857,10 +857,14 @@ function syncToShown(){
   markCommand();
   renderTransport();
 }
-/* 絶対シーク。LIVE端の推定が要る。巻き戻せない配信には掛けない */
+/* 絶対シーク。LIVE端の推定が要る。巻き戻せない配信には掛けない。
+   アーカイブには掛けない: これは「LIVE端からの遅れ」というライブの共通軸を
+   その動画に当てはめる操作で、長さの違うアーカイブでは無関係な位置へ飛ぶ
+   （長さ1500秒の動画に「終端から897秒前」を当てて 603秒へ飛ばしていた）。
+   アーカイブは seekArchiveTo() で絶対位置を指して動かす */
 function seekPlayer(k){
   const p = players[k];
-  if(!p || !seekable(k)) return false;
+  if(!p || !seekable(k) || isArchive(k)) return false;
   const edge = liveEdge(k);
   // LIVE端が未確定のまま seekTo すると配信の先頭へ飛ばされ再生が壊れる
   if(edge <= 0) return false;
@@ -941,7 +945,8 @@ function goLive(){
   KEYS.forEach(k => {
     const p = players[k];
     const cur = playerTime(k);
-    if(!p || cur === null) return;
+    // アーカイブに LIVE端は無い。終端へ飛ばしても意味が無いので触らない
+    if(!p || cur === null || isArchive(k)) return;
     try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){}
   });
   applyAudio(audioKeys, true);
@@ -955,7 +960,7 @@ function goLive(){
     const now = performance.now();
     KEYS.forEach(k => {
       const cur = playerTime(k);
-      if(cur === null || cur <= 0) return;
+      if(cur === null || cur <= 0 || isArchive(k)) return;
       edgeBase[k] = cur;
       edgeWall[k] = now;
       if(trim[k] < 0) seekPlayer(k);
@@ -965,12 +970,22 @@ function goLive(){
   }, SETTLE_MS);
   renderTransport();
 }
-/* ライブは再生位置が入るまで少し掛かる。取れるまで LIVE へ同期を再試行 */
+/* ライブは再生位置が入るまで少し掛かる。取れるまで LIVE へ同期を再試行。
+   アーカイブは頭から流すだけ。共通軸に合わせて動かすと、長さの違う動画が
+   無関係な位置から始まってしまう（ズレ合わせは利用者が頭出しで決める） */
 function syncPlayerToLive(k){
   let attempt = 0;
   const tick = () => {
     const p = players[k];
     if(!p || !ready[k]) return;
+    if(isArchive(k)){ try{ p.playVideo(); }catch(e){} renderTransport(); return; }
+    // ライブかアーカイブかが読めるまでは、共通軸に合わせない（読めない
+    // うちに合わせると、アーカイブを無関係な位置から始めてしまう）
+    if(readRewind(k) === null && ++attempt < 40){
+      try{ p.playVideo(); }catch(e){}
+      setTimeout(tick, 250);
+      return;
+    }
     if(noteLiveEdge(k)){
       if(targetOffset > 0) seekPlayer(k);
       try{ p.playVideo(); }catch(e){}
