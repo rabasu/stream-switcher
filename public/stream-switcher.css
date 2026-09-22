@@ -152,6 +152,19 @@ body:not(.touch).paused #centerBtn{opacity:1;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 #splash:not(.gone) ~ #centerBtn{display:none;}
 
+/* ===== 配信終了の表示 ===== */
+#endedNote{
+  position:fixed;left:50%;top:calc(env(safe-area-inset-top, 0px) + 20px);
+  transform:translateX(-50%);z-index:19;
+  padding:10px 20px;border-radius:999px;pointer-events:none;
+  background:rgba(7,9,12,.82);color:#fff;backdrop-filter:blur(4px);
+  font-size:.84rem;font-weight:700;letter-spacing:.02em;
+  box-shadow:0 4px 20px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.12);
+}
+#endedNote[hidden]{display:none;}
+/* 導入画面ではまだ何も再生していない */
+#splash:not(.gone) ~ #endedNote{display:none;}
+
 /* ===== 読み込み中 ===== */
 #loading{
   position:fixed;inset:0;z-index:22;

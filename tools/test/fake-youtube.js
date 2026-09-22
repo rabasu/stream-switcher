@@ -4,8 +4,9 @@
      - seekTo() は [LIVE端-DVR, LIVE端] にクランプされる（先を指すと LIVE端に張り付く）
      - 再生が始まるまで getCurrentTime() は 0 を返す
      - 配信者が DVR を無効にしたライブは seekTo を黙って無視する（CFG.noDvr）
-     - 配信が終わるとアーカイブになる（endStream()）。isLive が下りて DVR 制限が
-       外れ、getDuration() が再生位置と同じ軸の「終端」を返すようになる
+     - 配信が終わると再生が止まり ENDED になる（endStream()）
+     - アーカイブ（CFG.archive）は普通の動画。isLive が false で、getDuration() は
+       再生位置と同じ軸の「終端」を返し、頭から終端まで自由にシークできる
    本物に無いもの: seek の着地遅延、セグメント粒度、LIVE端への自動追いつき。
    ここで通っても実機で動く保証にはならないので、トランスポートを変えたら
    実際の配信でも確かめること。 */
@@ -30,8 +31,9 @@ window.__FAKE = { players: {} };
     this.muted = true;
     this.posBase = 0;
     this.posWall = now();
-    this.live = true;
-    this.endAt = null;          // アーカイブ化したときの終端（秒）
+    // アーカイブ（配信済みの動画）は endAt で長さが決まり、伸びない
+    this.live = (CFG.archive || []).indexOf(opt.videoId) < 0;
+    this.endAt = this.live ? null : ELAPSED0;
     this.state = -1;
     this.seekLog = [];
     const host = document.getElementById(hostId);
@@ -54,16 +56,11 @@ window.__FAKE = { players: {} };
   FakePlayer.prototype.floor = function(){
     return this.live ? Math.max(0, this.edge() - DVR) : 0;   // アーカイブは先頭まで戻れる
   };
-  /* 配信終了。アーカイブになり、DVR を無効にしていた配信も自由に戻せるようになる
-     （本家と同じ）。先端で見ていた場合は再生がそこで終わる */
+  /* 配信終了。本物は再生が止まって ENDED になる。アーカイブへの切り替わりは
+     ページを読み直したときに起きるので、ここでは再現しない */
   FakePlayer.prototype.endStream = function(){
-    if(!this.live) return;
-    this.endAt = this.edge();
-    this.live = false;
-    if(this.pos() >= this.endAt - 0.5){
-      this.posBase = this.endAt; this.posWall = now(); this.playing = false;
-      this.setState(0);
-    }
+    this.posBase = this.pos(); this.posWall = now(); this.playing = false;
+    this.setState(0);
   };
   FakePlayer.prototype.setState = function(s){
     if(this.state === s) return;
@@ -97,14 +94,12 @@ window.__FAKE = { players: {} };
     this.seekLog.push({asked: t, got: clamped, edge: hi});
     this.posBase = clamped;
     this.posWall = now();
-    // 終わったところから戻すと再生が再開する（本家と同じ）
-    if(this.state === 0 && clamped < this.edge() - 0.5){ this.playing = true; this.setState(1); }
   };
   FakePlayer.prototype.playVideo = function(){
     if(!this.started){
-      // 再生が始まった瞬間に LIVE端へ着く（本物のライブと同じ）
+      // ライブは再生が始まった瞬間に LIVE端へ着く。アーカイブは頭から
       this.started = true;
-      this.posBase = this.edge();
+      this.posBase = this.live ? this.edge() : 0;
       this.posWall = now();
     }
     if(!this.playing){ this.posBase = this.pos(); this.posWall = now(); this.playing = true; }

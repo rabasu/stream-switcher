@@ -427,40 +427,39 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
-  /* 19. 配信が終わってアーカイブになったら、巻き戻せるようになる。
-         以前は起動時に一度読んだ「戻せない」を持ち続けていたため、アーカイブに
-         なってもシークバーが無効のままだった（本家では触れるのに戻せない） */
+  /* 19. アーカイブ（配信済みの動画）は普通の動画として扱う。
+         配信中に DVR を無効にしていた配信でも、終わったあと読み込めば戻せる。
+         以前は「配信中かどうか」を見ずに LIVE端を推定し続けていたため、
+         シークバーが動画の長さぶん開かず、実質どこへも動かせなかった */
   {
-    const { ctx, page } = await session({ keys: ['main'], noDvr: [MAIN_ID] });
-    const before = await page.evaluate(() => document.getElementById('scrub').disabled);
-    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
-    await sleep(2500);                          // 読み直しの間引きを通す
-    const after = await page.evaluate(() => ({
-      scrub: document.getElementById('scrub').disabled,
-      seek: Array.from(document.querySelectorAll('[data-seek]')).some(b => b.disabled)
+    const { ctx, page } = await session({ keys: ['main'], noDvr: [MAIN_ID], archive: [MAIN_ID] });
+    const st = await page.evaluate(() => ({
+      disabled: document.getElementById('scrub').disabled,
+      span: parseFloat(document.getElementById('scrub').max)
     }));
-    check('アーカイブになったらシークバーと秒送りが有効に戻る',
-          before && !after.scrub && !after.seek,
-          '配信中 disabled=' + before + ' → アーカイブ後 scrub=' + after.scrub + ' / 秒送り=' + after.seek);
+    check('DVR を無効にしていた配信でも、アーカイブなら触れて長さぶん開く',
+          !st.disabled && Math.abs(st.span - 600) < 20,
+          'scrub.disabled=' + st.disabled + ' / 幅 ' + st.span + '秒（動画の長さ 600秒）');
 
-    const pos = () => page.evaluate(() => window.__FAKE.players['p-main'].getCurrentTime());
-    const t0 = await pos();
-    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
-    await sleep(1200);
-    const t1 = await pos();
-    check('アーカイブになった配信は実際に巻き戻せる',
-          t0 - t1 > 25 && t0 - t1 < 35,
-          '再生位置が ' + (t0 - t1).toFixed(1) + '秒 戻った（30秒であるべき）');
+    // 終端の 60秒前へ動かす
+    await page.evaluate(() => {
+      const el = document.getElementById('scrub'); const max = parseFloat(el.max);
+      el.value = String(max - 60);
+      el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+    await sleep(1500);
+    const at = await page.evaluate(() => window.__FAKE.players['p-main'].getCurrentTime());
+    check('アーカイブはシークバーで指した位置へ実際に動く',
+          Math.abs(at - 540) < 8,
+          '再生位置 ' + at.toFixed(1) + '秒（終端 600秒の 60秒前であるべき）');
     await ctx.close();
   }
 
   /* 20. アーカイブの終端は伸びない。一時停止しても遅れ表示が増えないこと。
          LIVE端の推定（実時間で1倍速に外挿）をアーカイブにも使うと、止めている
-         あいだ中ずっと遅れが増え続け、seek 先も終端の先を指してしまう */
+         あいだ中ずっと遅れが増え続ける */
   {
-    const { ctx, page } = await session({ keys: ['main'] });
-    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
-    await sleep(1500);
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     await page.evaluate(() => document.getElementById('playBtn').click());
     await sleep(1000);
     const a = await label(page);
@@ -474,17 +473,48 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /* 21. アーカイブを見ているあいだは LIVE と表示しない（実状態を出す） */
   {
-    const { ctx, page } = await session({ keys: ['main'] });
-    const live = await label(page);
-    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
-    await sleep(2500);
-    const arch = await page.evaluate(() => ({
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
+    const st = await page.evaluate(() => ({
       label: document.getElementById('offsetLabel').textContent,
       live: document.getElementById('golive').classList.contains('live')
     }));
     check('アーカイブでは LIVE バッジを出さない',
-          live.indexOf('LIVE') >= 0 && arch.label.indexOf('LIVE') < 0 && !arch.live,
-          '配信中 "' + live + '" → アーカイブ後 "' + arch.label + '"（live クラス=' + arch.live + '）');
+          st.label.indexOf('LIVE') < 0 && !st.live,
+          '表示 "' + st.label + '"（live クラス=' + st.live + '）');
+    await ctx.close();
+  }
+
+  // 要素ごと無いとき（この機能が入る前のコード）は「出ていない」とみなす
+  const noteHidden = page => page.evaluate(() => {
+    const el = document.getElementById('endedNote');
+    return !el || el.hidden;
+  });
+
+  /* 22. 配信が終わったら、そのことを映像の上に出す。巻き戻せるかどうかとは
+         関係なく出し、巻き戻し始めたら（シークバーに触れたら）消す */
+  for(const noDvr of [[], [MAIN_ID]]){
+    const { ctx, page } = await session({ keys: ['main'], noDvr });
+    const before = await noteHidden(page);
+    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
+    await sleep(800);
+    const after = await noteHidden(page);
+    check('配信が終わったら「配信は終了しました」を出す' + (noDvr.length ? '（巻き戻せない配信でも）' : ''),
+          before && !after,
+          '配信中 hidden=' + before + ' → 終了後 hidden=' + after);
+    await ctx.close();
+  }
+  {
+    const { ctx, page } = await session({ keys: ['main'] });
+    await page.evaluate(() => window.__FAKE.players['p-main'].endStream());
+    await sleep(800);
+    await page.evaluate(() => {
+      const el = document.getElementById('scrub');
+      el.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}));
+    });
+    await sleep(600);
+    const gone = await noteHidden(page);
+    check('シークバーに触れたら「配信は終了しました」は消える',
+          gone, 'hidden=' + gone);
     await ctx.close();
   }
 

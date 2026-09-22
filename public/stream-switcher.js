@@ -168,9 +168,6 @@ function build(ids, withSound){
            シークがクランプされた、といった食い違いを画面に出すため */
         onStateChange: ev => {
           stateOf[k] = ev.data;
-          // 配信終了は状態変化として来る。アーカイブへの切り替わりを
-          // 間引き待ちさせず、その場で読み直す
-          probeWall[k] = 0;
           renderTransport();
         },
         onError: ev => {
@@ -637,13 +634,14 @@ function setVolume(v, silent){
    本配信だけ戻せるときに、戻せない同時視聴の遅れへ本配信を合わせる、
    という使い方ができるよう、あえて全体を止めずに片側だけ動かす。
 
-   原則4: 巻き戻しの可否も配信中かどうかも、見ている最中に変わる。
-   配信が終わってアーカイブになれば、DVR を無効にしていた配信でも自由に
-   シークできる（本家と同じ）。可否は一度読んだら終わりではなく読み直す。
-   アーカイブになった配信は LIVE端の推定をやめ、getDuration() を終端として
-   使う（原則1の禁止はライブに限った話。終わった動画の getDuration() は
-   再生位置と同じ軸に乗る）。推定のままだと一時停止中も終端が実時間で
-   伸び続け、遅れ表示が勝手に増えていく。
+   原則4: アーカイブは普通の動画として扱う。読み込んだものが配信中でなければ、
+   LIVE端の推定をやめ、getDuration() を終端として使う（原則1の禁止はライブに
+   限った話。終わった動画の getDuration() は再生位置と同じ軸に乗る）。推定の
+   ままだと終端が実時間で伸び続けるので、頭から見ても戻れる幅がほとんど無く、
+   一時停止中は遅れ表示が勝手に増えていく。
+   見ている最中に配信が終わった場合は、アーカイブへの切り替わりを追いかけない。
+   終わったことだけを映像の上に出す（renderEndedNote）。次に読み込めば
+   アーカイブとして開ける。
    ================================================================ */
 const ST = {UNSTARTED:-1, ENDED:0, PLAYING:1, PAUSED:2, BUFFERING:3, CUED:5};
 const SETTLE_MS = 2000;        // コマンド発行後、実状態が追いつくのを待つ時間
@@ -661,13 +659,13 @@ let verifyTimer = null;
 let transportSeq = 0;          // 操作の通し番号。遅れて届く後処理が新しい操作を踏まないため
 const trim = {main:0, a:0, b:0};
 const stateOf = {main:ST.UNSTARTED, a:ST.UNSTARTED, b:ST.UNSTARTED};
-const REPROBE_MS = 2000;       // 巻き戻し可否 / 配信中かを読み直す間隔
 /* 配信ごとの巻き戻し可否。true = 戻せる / false = 戻せない /
    null = まだ分からない（分からないうちは戻せるものとして扱う） */
 const canRewind = {main:null, a:null, b:null};
-/* 配信中か。false = アーカイブ（配信終了後） / null = まだ分からない */
+/* 配信中か。false = アーカイブ / null = まだ分からない */
 const isLiveNow = {main:null, a:null, b:null};
-const probeWall = {main:0, a:0, b:0};  // 次に読み直してよい performance.now() の ms
+/* 「配信は終了しました」を消したか（配信ごと）。シークバーに触れたら消す */
+const endedNoteOff = {main:false, a:false, b:false};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
    持ち、経過実時間で外挿する。ライブの LIVE端は再生状態にも再生速度にも
    関係なく実時間と同じ速さで進むので、外挿は常に1倍速でよい。 */
@@ -688,7 +686,7 @@ function resetTransport(){
     stateOf[k] = ST.UNSTARTED;
     canRewind[k] = null;
     isLiveNow[k] = null;
-    probeWall[k] = 0;
+    endedNoteOff[k] = false;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
     const el = document.getElementById('tr-'+k);
@@ -699,37 +697,25 @@ function markCommand(){ settleUntil = performance.now() + SETTLE_MS; }
 function settling(){ return performance.now() < settleUntil; }
 function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
 
-/* 巻き戻しの可否と配信中かを読む。公式 API には無いが、getVideoData() の
-   isLive / allowLiveDvr で分かる（実機で確認済み）。読めない環境では null のまま。
-
-   一度読んだ値を持ち続けないこと。配信が終わってアーカイブになると
-   isLive が下り、DVR を無効にしていた配信でも巻き戻せるようになる。
-   初回の false を握ったままだと、アーカイブになってもシークバーを
-   無効にし続けてしまう（実際にこの不具合を出している） */
+/* 読み込んだものがライブかアーカイブか、巻き戻せるかを読む。公式 API には
+   無いが、getVideoData() の isLive / allowLiveDvr で分かる（実機で確認済み）。
+   読み込み直後はまだ読めないので、読めるまで呼ぶたびに試す。読めない環境では
+   null のまま */
 function probeVideoData(k){
+  if(canRewind[k] !== null) return;          // 読めたら確定。読み直さない
   const p = players[k];
   if(!p || !ready[k] || typeof p.getVideoData !== 'function') return;
-  const now = performance.now();
-  if(now < probeWall[k]) return;             // 描画のたびに呼ばれるので間引く
-  probeWall[k] = now + REPROBE_MS;
-  let vd = null;
-  try{ vd = p.getVideoData(); }catch(e){ return; }
-  if(!vd || typeof vd.isLive !== 'boolean') return;
-  isLiveNow[k] = vd.isLive;
-  // アーカイブは自由にシークできる。ライブは配信者の DVR 設定次第
-  const next = vd.isLive ? vd.allowLiveDvr !== false : true;
-  if(next === canRewind[k]) return;
-  const was = canRewind[k];
-  canRewind[k] = next;
-  if(was === false && next){
-    // 「戻せない」と案内した後で戻せるようになった。黙って切り替えると
-    // 画面が不可のままだと思われるので、変わったことを伝える。
-    // 描画し直しは 300ms ごとの定期更新に任せる（ここは描画中からも呼ばれる）
-    setStatusLine(SRC_LABEL[k] + ' の配信が終わりました。アーカイブになったので巻き戻せます');
-  }
+  try{
+    const vd = p.getVideoData();
+    if(!vd || typeof vd.isLive !== 'boolean') return;
+    isLiveNow[k] = vd.isLive;
+    // アーカイブは普通の動画なので自由にシークできる。
+    // ライブは配信者の DVR 設定次第
+    canRewind[k] = vd.isLive ? vd.allowLiveDvr !== false : true;
+  }catch(e){}
 }
 function readRewind(k){ probeVideoData(k); return canRewind[k]; }
-/* 配信が終わってアーカイブになっているか */
+/* 配信中ではない = アーカイブ（普通の動画）か */
 function isArchive(k){ probeVideoData(k); return isLiveNow[k] === false; }
 /* アーカイブの終端。ライブと違い getDuration() が再生位置と同じ軸に乗る */
 function archiveEnd(k){
@@ -745,13 +731,6 @@ function seekable(k){ return !!players[k] && ready[k] && readRewind(k) !== false
 /* 読み込んでいて、巻き戻せないと分かっている配信 */
 function noRewindKeys(){ return KEYS.filter(k => players[k] && ready[k] && readRewind(k) === false); }
 function noRewindMessage(keys){
-  // 配信が終わっているのに戻せないままなら、埋め込みがライブのまま残っている。
-  // アーカイブを読み直せば戻せるので、再読み込みを案内する
-  const ended = keys.filter(k => stateOf[k] === ST.ENDED);
-  if(ended.length === keys.length && keys.length){
-    return keys.map(k => SRC_LABEL[k]).join('・')
-      + ' の配信は終わりました。アーカイブで巻き戻すにはページを再読み込みしてください';
-  }
   return keys.map(k => SRC_LABEL[k]).join('・') + ' は配信者が巻き戻しを無効にしているため、LIVE のままです';
 }
 
@@ -774,8 +753,8 @@ function playerTime(k){
    遅れ秒数を出すときにだけ足す。 */
 function liveEdge(k){
   if(isArchive(k)){
-    // アーカイブは終端が伸びない。推定を続けると一時停止中に遅れが
-    // 勝手に増え、seek 先も終端の先を指してしまう
+    // アーカイブは終端が伸びない。推定を続けると戻れる幅が出ず、
+    // 一時停止中に遅れが勝手に増え、seek 先も終端の先を指してしまう
     const end = archiveEnd(k);
     if(end > 0) return end;
     // 取れないときだけ従来の推定へ落とす
@@ -1059,6 +1038,16 @@ function reconcileTransport(){
   if(!paused && m < LIVE_EPS){ targetOffset = 0; return; }
   if(Math.abs(m - targetOffset) > OFFSET_SNAP) targetOffset = m;
 }
+/* 配信が終わったことを映像の上に出す。巻き戻せるかどうかとは関係なく出す。
+   巻き戻し始めたら（シークバーに触れたら）邪魔なので消す。
+   アーカイブは元から終わっているので、最後まで見ても出さない */
+function renderEndedNote(){
+  const el = document.getElementById('endedNote');
+  if(!el) return;
+  const k = videoSrc;
+  el.hidden = !(players[k] && ready[k] && stateOf[k] === ST.ENDED
+                && !isArchive(k) && !endedNoteOff[k]);
+}
 /* シーク系の操作が効くか。全配信が巻き戻せないなら押せなくして理由を出す。
    見ている配信だけ戻せないときは押せるままにし、何が起きるかを title で示す */
 function renderRewind(scrub){
@@ -1081,6 +1070,7 @@ function renderTransport(){
   if(!scrubbing) scrub.max = scrubSpan();
   if(!settling()) reconcileTransport();
   renderRewind(scrub);
+  renderEndedNote();
 
   const off = scrubbing ? (scrub.max - parseFloat(scrub.value)) : shownOffset();
   if(!scrubbing) scrub.value = Math.max(0, scrub.max - Math.min(off, scrub.max));
@@ -1520,6 +1510,9 @@ renderLinkVideo();
 renderAvailability();
 
 const scrubEl = document.getElementById('scrub');
+/* 巻き戻しを始めたら「配信は終了しました」は用済み。つまみを掴んだ時点で消す */
+['pointerdown','input','keydown'].forEach(ev =>
+  scrubEl.addEventListener(ev, () => { endedNoteOff[videoSrc] = true; }));
 scrubEl.addEventListener('input', () => { scrubbing = true; renderTransport(); });
 scrubEl.addEventListener('change', () => {
   targetOffset = Math.max(0, parseFloat(scrubEl.max) - parseFloat(scrubEl.value));
