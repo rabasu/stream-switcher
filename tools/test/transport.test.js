@@ -710,7 +710,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     /* 出る条件が再生ボタンと同じであること（タッチは触ってから少しのあいだ）。
        opacity は 0.25秒かけて変わるので、切り替えた直後に読むと途中の値
        （＝変える前の値）が返る。終わるまで待ってから読む */
-    const opacities = () => page.evaluate(() => ['centerBtn','back10','fwd10']
+    const opacities = () => page.evaluate(() => ['centerControls']
       .map(id => getComputedStyle(document.getElementById(id)).opacity));
     await page.evaluate(() => document.body.classList.add('center-hidden'));
     await sleep(600);
@@ -749,6 +749,28 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           Math.abs(solo.main - b2.main - 10) < 4 && Math.abs(solo.a - b2.a) < 4,
           'MAIN ' + (solo.main - b2.main).toFixed(1) + '秒 / VC-A '
             + (solo.a - b2.a).toFixed(1) + '秒（VC-A は 0 であるべき）');
+    await ctx.close();
+  }
+
+  /* 28. PC で、カーソルをボタンに乗せても消えないこと。
+         ボタンは #shield の子ではないので、乗せた瞬間に #shield の :hover が
+         外れる。1つずつ出していたときは、それで隣のボタンが消えていた */
+  {
+    const { ctx, page } = await session({ keys: ['main'] });
+    const ctlOpacity = () => page.evaluate(() =>
+      getComputedStyle(document.getElementById('centerControls')).opacity);
+    await page.hover('#shield');
+    await sleep(600);
+    const onVideo = await ctlOpacity();
+    await page.hover('#back10');
+    await sleep(600);
+    const onBack = await ctlOpacity();
+    await page.hover('#centerBtn');
+    await sleep(600);
+    const onPlay = await ctlOpacity();
+    check('PC でボタンに乗せても、中央の操作が消えない',
+          onVideo === '1' && onBack === '1' && onPlay === '1',
+          '映像の上 ' + onVideo + ' → 10秒戻るの上 ' + onBack + ' → 再生ボタンの上 ' + onPlay);
     await ctx.close();
   }
 

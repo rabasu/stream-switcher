@@ -116,26 +116,35 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
    YouTube などと同じく、映像の中央を押して止める。左右の 10秒送りは、
    シークバーでの細かい調整が難しいので並べて置く。出す条件は3つとも同じ。
    操作パネル（#shield, z5）より前、操作バー（z20）より後ろに置く。 */
-.centerCtl{
+/* 3つまとめて出し入れする。ボタンは #shield の子ではないので、カーソルが
+   ボタンに乗ると #shield の :hover が外れる。1つずつ出していると、その瞬間に
+   隣のボタンが消えてしまう（実際にこの不具合を出している）。入れ物ごと
+   出し入れし、入れ物に乗っているあいだは出しておく。
+   ボタンの隙間を押したときは映像の再生 / 停止に通したいので、入れ物自身は
+   クリックを受けない */
+#centerControls{
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;
+  display:flex;align-items:center;gap:12px;pointer-events:none;
+  transition:opacity .25s;
+}
+.centerCtl{
+  pointer-events:auto;
   padding:0;border:none;border-radius:50%;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
+  display:flex;align-items:center;justify-content:center;position:relative;
   color:#fff;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
   box-shadow:0 4px 20px rgba(0,0,0,.45);
-  transition:opacity .25s,background .15s;
+  transition:background .15s;
 }
 #centerBtn{width:68px;height:68px;}
 /* 10秒送り。矢印の輪の中に秒数を置く、動画サイトでよくある形 */
-#back10,#fwd10{width:52px;height:52px;position:fixed;}
-#back10{left:calc(50% - 74px);}
-#fwd10{left:calc(50% + 74px);}
+#back10,#fwd10{width:52px;height:52px;}
 #back10 svg,#fwd10 svg{width:30px;height:30px;}
 .ctlNum{
   position:absolute;left:50%;top:50%;transform:translate(-50%,-42%);
   font-size:.58rem;font-weight:800;letter-spacing:-.02em;pointer-events:none;
 }
 .centerCtl:hover{background:rgba(0,0,0,.7);}
-.centerCtl:active{transform:translate(-50%,-50%) scale(.94);}
+.centerCtl:active{transform:scale(.94);}
 /* 全部が巻き戻せないときは押せない（renderRewind が落とす） */
 .centerCtl:disabled{opacity:.25;cursor:default;}
 .centerCtl:disabled:hover{background:rgba(0,0,0,.55);}
@@ -143,35 +152,43 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 body.paused #centerBtn .iconPause{display:none;}
 body.paused #centerBtn .iconPlay{display:block;}
 /* タッチは操作パネルと同時（横画面）か時間経過（縦画面）で隠す */
-body.touch.chrome-hidden .centerCtl,
-body.touch.center-hidden .centerCtl{opacity:0;pointer-events:none;}
+body.touch.chrome-hidden #centerControls,
+body.touch.center-hidden #centerControls{opacity:0;pointer-events:none;}
 
 /* PC はカーソルが動画中央に来たときだけ出す。押しやすいよう円を約2倍にし、
    透明なあいだも受け付けるので、中央に入った瞬間から押せる */
 body:not(.touch) #centerBtn{
-  width:136px;height:136px;opacity:0;
+  width:136px;height:136px;
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
 body:not(.touch) #back10,body:not(.touch) #fwd10{
-  width:64px;height:64px;opacity:0;background:rgba(0,0,0,.42);
+  width:64px;height:64px;background:rgba(0,0,0,.42);
 }
-body:not(.touch) #back10{left:calc(50% - 106px);}
-body:not(.touch) #fwd10{left:calc(50% + 106px);}
+body:not(.touch) #centerControls{opacity:0;gap:6px;}
 /* ボタンの上に載せたときだけ出るのでは狭すぎて見つからない。
    カーソルが映像の上にあるあいだは出しておく。#shield は映像の全面を
    覆っていて、上下のメニュー（z-20）やパネルはその上に乗っているので、
    メニューの上へ来ると #shield が :hover でなくなり自然に引っ込む。
    自分で UI を畳んだとき（chrome-hidden）は映像だけ見たいので出さない */
-body:not(.touch):not(.chrome-hidden) #shield:hover ~ .centerCtl{opacity:1;}
+body:not(.touch):not(.chrome-hidden) #shield:hover ~ #centerControls,
+/* ボタンに乗ると #shield の :hover が外れるので、入れ物でも受ける */
+body:not(.touch):not(.chrome-hidden) #centerControls:hover{opacity:1;}
+/* 入れ物は pointer-events:none なので、環境によっては上の :hover が
+   立たない。:has() を別の規則にして受ける（まとめて書くと、:has() の
+   無い環境で規則ごと捨てられる） */
+body:not(.touch):not(.chrome-hidden) #centerControls:has(.centerCtl:hover){opacity:1;}
 /* ボタンに載っているあいだは濃くして、押せることを示す */
-body:not(.touch) .centerCtl:hover{opacity:1;background:rgba(0,0,0,.55);}
+body:not(.touch) .centerCtl:hover{background:rgba(0,0,0,.55);}
 /* 止めているあいだは出しておく。出ていないと、止まっていることも
    戻し方も分からない */
-body:not(.touch).paused .centerCtl{opacity:1;}
+body:not(.touch).paused #centerControls{opacity:1;}
+/* UI を畳んでいるあいだは出さない。透明なまま押せると、映像だけ見ている
+   つもりで 10秒飛んでしまう */
+body.chrome-hidden #centerControls{pointer-events:none;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
 body:not(.touch) #back10 svg,body:not(.touch) #fwd10 svg{width:34px;height:34px;}
 body:not(.touch) .ctlNum{font-size:.66rem;}
-#splash:not(.gone) ~ .centerCtl{display:none;}
+#splash:not(.gone) ~ #centerControls{display:none;}
 
 /* ===== 配信終了の表示 ===== */
 #endedNote{
