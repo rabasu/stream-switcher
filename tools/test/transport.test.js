@@ -707,15 +707,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       }
       return o;
     });
-    // 出る条件が再生ボタンと同じであること（タッチは触ってから少しのあいだ）
-    const vis = await page.evaluate(() => {
-      const read = () => ['centerBtn','back10','fwd10']
-        .map(id => getComputedStyle(document.getElementById(id)).opacity);
-      document.body.classList.add('center-hidden');
-      const hidden = read();
-      document.body.classList.remove('center-hidden');
-      return { hidden, shown: read() };
-    });
+    /* 出る条件が再生ボタンと同じであること（タッチは触ってから少しのあいだ）。
+       opacity は 0.25秒かけて変わるので、切り替えた直後に読むと途中の値
+       （＝変える前の値）が返る。終わるまで待ってから読む */
+    const opacities = () => page.evaluate(() => ['centerBtn','back10','fwd10']
+      .map(id => getComputedStyle(document.getElementById(id)).opacity));
+    await page.evaluate(() => document.body.classList.add('center-hidden'));
+    await sleep(600);
+    const hiddenOpacity = await opacities();
+    await page.evaluate(() => document.body.classList.remove('center-hidden'));
+    await sleep(600);
+    const vis = { hidden: hiddenOpacity, shown: await opacities() };
     check('10秒送りは、中央の再生ボタンと同じ条件で出入りする',
           vis.hidden.every(o => o === '0') && vis.shown.every(o => o === '1'),
           '隠すとき ' + vis.hidden.join('/') + ' → 出すとき ' + vis.shown.join('/'));
