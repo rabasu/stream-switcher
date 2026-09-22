@@ -476,17 +476,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   {
     const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     const st = await page.evaluate(() => ({
-      label: document.getElementById('offsetLabel').textContent,
+      pos: document.getElementById('posLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden,
       live: document.getElementById('golive').classList.contains('live'),
+      btnHidden: document.getElementById('golive').hidden,
       value: parseFloat(document.getElementById('scrub').value),
       max: parseFloat(document.getElementById('scrub').max)
     }));
-    check('アーカイブはスライダーの左端（先頭）から始まり、経過時間を出す',
-          st.value < 20 && st.max > 500 && /^0:\d\d$/.test(st.label),
-          'つまみ ' + st.value + ' / ' + st.max + ' / 表示 "' + st.label + '"');
-    check('アーカイブでは LIVE バッジを出さない',
-          st.label.indexOf('LIVE') < 0 && !st.live,
-          '表示 "' + st.label + '"（live クラス=' + st.live + '）');
+    check('アーカイブはスライダーの左端（先頭）から始まり、経過 / 全体を出す',
+          st.value < 20 && st.max > 500 && !st.posHidden && /^0:\d\d \/ 10:00$/.test(st.pos),
+          'つまみ ' + st.value + ' / ' + st.max + ' / 表示 "' + st.pos + '"');
+    check('アーカイブでは LIVE バッジを出さず、1本だけなら SYNC も出さない',
+          !st.live && st.btnHidden,
+          'live クラス=' + st.live + ' / SYNC hidden=' + st.btnHidden);
     await ctx.close();
   }
 
@@ -532,6 +534,62 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const gone = await noteHidden(page);
     check('シークバーに触れたら「配信は終了しました」は消える',
           gone, 'hidden=' + gone);
+    await ctx.close();
+  }
+
+  /* 24. アーカイブの同時視聴。動画ごとに開始時刻が違うので、
+         「まとめてシーク」を切って1本ずつ頭出しし、戻せばズレを保ったまま
+         一緒に動く。揃え直したいときは SYNC */
+  {
+    const A_ID = 'BBBBBBBBBBB';
+    const { ctx, page } = await session({
+      keys: ['main','a'], archive: [MAIN_ID, A_ID],
+      lengths: {[MAIN_ID]: 900, [A_ID]: 1500}     // 長さが違う動画どうし
+    });
+    const pos = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']) o[k] = window.__FAKE.players['p-'+k].getCurrentTime();
+      return o;
+    });
+    const seekTo = v => page.evaluate(val => {
+      const el = document.getElementById('scrub');
+      el.value = String(val);
+      el.dispatchEvent(new Event('input', {bubbles:true}));
+      el.dispatchEvent(new Event('change', {bubbles:true}));
+    }, v);
+
+    const maxAtMain = await page.evaluate(() => parseFloat(document.getElementById('scrub').max));
+    check('シークバーの幅は、見ている動画自身の長さになる',
+          Math.abs(maxAtMain - 900) < 60,
+          '幅 ' + maxAtMain + '秒（MAIN の長さ 900秒 / VC-A は 1500秒）');
+
+    // まとめてシークを切って、見ている動画だけ頭出しする
+    await page.evaluate(() => document.getElementById('groupSeek').click());
+    await seekTo(120);
+    await sleep(1200);
+    const solo = await pos();
+    check('まとめてシーク OFF なら、今映している動画だけが動く',
+          Math.abs(solo.main - 120) < 8 && solo.a < 40,
+          'MAIN ' + solo.main.toFixed(1) + '秒 / VC-A ' + solo.a.toFixed(1) + '秒（VC-A は動かない）');
+
+    // 戻すと、付けたズレを保ったまま一緒に動く
+    await page.evaluate(() => document.getElementById('groupSeek').click());
+    const before = await pos();
+    await seekTo(300);
+    await sleep(1200);
+    const after = await pos();
+    const gap0 = before.main - before.a, gap1 = after.main - after.a;
+    check('まとめてシーク ON なら、ズレを保ったまま全部が同じだけ動く',
+          Math.abs(after.main - 300) < 8 && Math.abs(gap1 - gap0) < 8,
+          'MAIN ' + after.main.toFixed(1) + '秒 / ズレ ' + gap0.toFixed(1) + '秒 → ' + gap1.toFixed(1) + '秒');
+
+    // SYNC で揃え直す
+    await page.evaluate(() => document.getElementById('golive').click());
+    await sleep(1200);
+    const synced = await pos();
+    check('SYNC で、他の動画が今映している動画と同じ位置に揃う',
+          Math.abs(synced.main - synced.a) < 8,
+          'MAIN ' + synced.main.toFixed(1) + '秒 / VC-A ' + synced.a.toFixed(1) + '秒');
     await ctx.close();
   }
 

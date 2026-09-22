@@ -530,6 +530,12 @@ body.paused #playBtn .iconPlay{display:block;}
 #timeline input[type=range]::-moz-range-thumb{
   width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
 }
+/* アーカイブの経過 / 全体。ライブでは出さない（軸が LIVE端からの遅れのため）*/
+#posLabel{
+  flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--sub);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+#posLabel[hidden]{display:none;}
 /* LIVE 表示と LIVE 復帰ボタンは同じ情報なので1つにまとめてある。
    LIVE 中でも押せる（表示上 LIVE でも実際は少し遅れていることがあるため）*/
 #golive{
@@ -549,6 +555,11 @@ body.paused #playBtn .iconPlay{display:block;}
 }
 #golive.live .liveDot{opacity:1;animation:pulse 1.6s infinite;}
 #golive.live:hover{border-color:var(--live);color:var(--live);}
+/* アーカイブでは LIVE ではなく SYNC（他の動画を今の位置へ揃える）。
+   LIVE の点は意味が無いので消す */
+#golive[hidden]{display:none;}          /* display:flex を上書きする */
+#golive.sync .liveDot{display:none;}
+#golive.sync #offsetLabel{min-width:3.2em;}
 
 /* ===== 音量 ===== */
 #volWrap{display:flex;align-items:center;gap:8px;flex:0 0 auto;}

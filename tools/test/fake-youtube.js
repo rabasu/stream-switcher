@@ -33,7 +33,9 @@ window.__FAKE = { players: {} };
     this.posWall = now();
     // アーカイブ（配信済みの動画）は endAt で長さが決まり、伸びない
     this.live = (CFG.archive || []).indexOf(opt.videoId) < 0;
-    this.endAt = this.live ? null : ELAPSED0;
+    // 長さは動画ごとに変えられる（CFG.lengths）。既定は ELAPSED0
+    this.endAt = this.live ? null
+               : ((CFG.lengths && CFG.lengths[opt.videoId]) || ELAPSED0);
     this.state = -1;
     this.seekLog = [];
     const host = document.getElementById(hostId);
