@@ -779,6 +779,60 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 29. 音量は配信ごとに持ち、バーは今映している配信のものを編集する。
+         同時再生で実況とチームVCを混ぜるとき、片方だけ下げられること */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    const vols = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']) o[k] = window.__FAKE.players['p-'+k].getVolume();
+      return o;
+    });
+    const setBar = v => page.evaluate(val => {
+      const el = document.getElementById('vol');
+      el.value = String(val);
+      el.dispatchEvent(new Event('input', {bubbles:true}));
+    }, v);
+    const barState = () => page.evaluate(() => ({
+      value: parseFloat(document.getElementById('vol').value),
+      label: document.getElementById('volLabel').textContent
+    }));
+
+    // 同時再生にして MAIN と VC-A の両方を鳴らす
+    await page.evaluate(() => document.getElementById('mix').click());
+    await page.evaluate(() => document.querySelector('[data-aud="a"]').click());
+    await sleep(800);
+
+    await setBar(40);                       // 映しているのは MAIN
+    await sleep(800);
+    const v1 = await vols();
+    check('音量バーは、今映している配信だけに効く',
+          Math.abs(v1.main - 40) < 2 && Math.abs(v1.a - 100) < 2,
+          'MAIN ' + v1.main + ' / VC-A ' + v1.a + '（VC-A は 100 のまま）');
+
+    await page.evaluate(() => document.querySelector('[data-vid="a"]').click());
+    await sleep(500);
+    const b1 = await barState();
+    check('映像を切り替えると、バーはその配信の音量に入れ替わる',
+          Math.abs(b1.value - 100) < 2 && /VC-A/.test(b1.label),
+          'バー ' + b1.value + ' / 表示 "' + b1.label + '"');
+
+    await setBar(70);
+    await sleep(800);
+    const v2 = await vols();
+    check('配信ごとの音量が別々に保たれる',
+          Math.abs(v2.main - 40) < 2 && Math.abs(v2.a - 70) < 2,
+          'MAIN ' + v2.main + ' / VC-A ' + v2.a);
+
+    await page.evaluate(() => document.querySelector('[data-vid="main"]').click());
+    await sleep(500);
+    const b2 = await barState();
+    check('映像を戻すと、前に決めた音量がそのまま出る',
+          Math.abs(b2.value - 40) < 2 && /MAIN/.test(b2.label),
+          'バー ' + b2.value + ' / 表示 "' + b2.label + '"');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

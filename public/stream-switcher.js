@@ -157,7 +157,7 @@ function build(ids, withSound){
           scheduleHideChrome();
           showCenter();
           try{ e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(err){}
-          e.target.setVolume(masterVol);
+          e.target.setVolume(vol[k]);
           e.target.mute();
           e.target.playVideo();
           applyAudio(audioKeys, true);
@@ -214,6 +214,7 @@ function setVideo(k){
   if(ecoSuspended) armEcoResume();
   document.querySelectorAll('[data-vid]').forEach(b =>
     b.classList.toggle('on', b.dataset.vid === videoSrc));
+  renderVolume();          // 音量バーは映している配信のものに入れ替わる
 }
 
 /* ================================================================
@@ -296,8 +297,15 @@ function toggleLinkVideo(){
   renderLinkVideo();
 }
 
-/* ---------- 音声 ---------- */
-let masterVol = 100;              // 全体音量 (0-100)
+/* ---------- 音声 ----------
+   音量は配信ごとに持つ。同時再生で実況とチームVCを混ぜるとき、片方だけ
+   小さくしたいことが多いため。バーが編集するのは「今映している配信」の音量。
+   映像を切り替えるとバーもその配信の値に入れ替わる */
+const vol = {main:100, a:100, b:100};
+/* バーが担当する配信。映像を切り替えても、読み込んでいなければ触らない */
+function volKey(){ return players[videoSrc] ? videoSrc : (KEYS.find(k => players[k]) || videoSrc); }
+/* 鳴っている中でいちばん大きい音量。0 なら実質ミュート */
+function audibleVol(){ return audioKeys.reduce((m, k) => Math.max(m, vol[k]), 0); }
 const fades = {};
 /* クエリURL自動起動など、再生開始前の unmute は自動再生を止めるので初回操作まで待つ */
 let audioUnlocked = false;
@@ -353,7 +361,7 @@ const SRC_COLOR = {main:'#3ddc84', a:'#4ea8de', b:'#f2a65a'};
    KEYS の並びに揃えてから配る（表示の順を安定させるため） */
 function applyAudio(keys, instant){
   audioKeys = KEYS.filter(k => players[k] && keys.includes(k));
-  KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? masterVol : 0, instant));
+  KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? vol[k] : 0, instant));
 
   // 選択の点灯はミュート中も保つ。「いま音量を戻したら何が鳴るか」を残す
   document.querySelectorAll('[data-aud]').forEach(
@@ -434,7 +442,12 @@ function toggleAudioKey(k){
    触らない。選択を消してしまうと、音量を戻したときに何が鳴るのかが
    画面から読み取れなくなる。
    ================================================================ */
-function isMuted(){ return muted || masterVol === 0 || audioKeys.length === 0; }
+function isMuted(){ return muted || audioKeys.length === 0 || audibleVol() === 0; }
+/* 音量 0 のまま解除しても鳴らない。全部 0 のときだけ戻す */
+function restoreSilentVolumes(){
+  if(audibleVol() > 0) return;
+  (audioKeys.length ? audioKeys : KEYS).forEach(k => { vol[k] = 100; });
+}
 function muteAll(){
   muted = true;
   applyAudio(audioKeys);          // 選択はそのまま。音量だけ落とす
@@ -443,7 +456,7 @@ function unmute(){
   audioUnlocked = true;
   muted = false;
   pendingUnmute = false;
-  if(masterVol === 0) setVolume(100);
+  restoreSilentVolumes();
   // まだ何も選んでいなければ（起動直後に選択ボタンで外された等）、
   // 読み込んでいる先頭を鳴らす
   if(!audioKeys.length){
@@ -468,19 +481,27 @@ function unlockPendingUnmute(){
   if(!pendingUnmute) return false;
   muted = false;
   pendingUnmute = false;
-  if(masterVol === 0) setVolume(100);
+  restoreSilentVolumes();
   return true;
 }
 
-/* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
+/* バーとスピーカーの見た目。バーは「今映している配信」の音量を出す。
+   ミュート中は最小で描く（vol は保持） */
 function renderVolume(){
-  const shown = (muted || audioKeys.length === 0) ? 0 : masterVol;
+  const k = volKey();
+  const shown = (muted || audioKeys.length === 0) ? 0 : vol[k];
   const el = document.getElementById('vol');
   if(el.value != shown) el.value = shown;
+  // どの配信の音量を触っているかが分かるよう、バーはその配信の色で塗る
+  const color = SRC_COLOR[k];
   el.style.background =
-    'linear-gradient(to right, var(--a) 0%, var(--a) ' + shown + '%, #2b3340 ' + shown + '%, #2b3340 100%)';
+    'linear-gradient(to right, ' + color + ' 0%, ' + color + ' ' + shown + '%, #2b3340 '
+    + shown + '%, #2b3340 100%)';
+  el.title = SRC_LABEL[k] + ' の音量';
+  el.setAttribute('aria-label', SRC_LABEL[k] + ' の音量');
   const lab = document.getElementById('volLabel');
-  lab.textContent = shown;
+  // 2本以上あるときは、どれの音量かを添える（1本なら迷わないので数字だけ）
+  lab.textContent = loadedCount() > 1 ? SRC_LABEL[k] + ' ' + shown : String(shown);
   lab.classList.toggle('muted', shown === 0);
 
   const btn = document.getElementById('volMute');
@@ -597,18 +618,19 @@ function swapVc(){
   applyAudio(keys);
 }
 
-/* 全体音量。鳴っているプレーヤーにのみ即時反映する */
+/* 今映している配信の音量。鳴っていれば即時反映する。鳴っていない配信でも
+   値は覚えておき、その配信を鳴らしたときにその音量で出す */
 function setVolume(v, silent){
-  masterVol = Math.max(0, Math.min(100, Math.round(v)));
-  KEYS.forEach(k => {
-    const p = players[k];
-    if(!p || !ready[k] || !audioKeys.includes(k)) return;
+  const k = volKey();
+  vol[k] = Math.max(0, Math.min(100, Math.round(v)));
+  const p = players[k];
+  if(p && ready[k] && audioKeys.includes(k)){
     clearInterval(fades[k]);
     try{
-      p.setVolume(masterVol);
-      (masterVol > 0 && !muted && canUnmute()) ? p.unMute() : p.mute();
+      p.setVolume(vol[k]);
+      (vol[k] > 0 && !muted && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
-  });
+  }
   renderNowAudio();
   renderVolume();
 }
@@ -1309,6 +1331,7 @@ function renderDiag(){
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
+    '音量        ' + KEYS.filter(k => players[k]).map(k => SRC_LABEL[k] + ' ' + vol[k]).join(' / ') + '\n',
     '音声        ' + (audioKeys.join(' + ') || '選択なし')
                     + (muted ? '（ミュート）' : '')
                     + (mixMode ? '（同時再生 ON）' : '') + '\n',
@@ -1737,8 +1760,8 @@ window.addEventListener('keydown', e => {
   if(e.code === 'Space'){ e.preventDefault(); swapVc(); return; }
   if(e.key === 'ArrowLeft'){ e.preventDefault(); seekRelative(e.shiftKey ? 30 : 10); return; }
   if(e.key === 'ArrowRight'){ e.preventDefault(); seekRelative(e.shiftKey ? -30 : -10); return; }
-  if(e.key === 'ArrowUp'){ e.preventDefault(); setVolume(masterVol + (e.shiftKey ? 1 : 5)); return; }
-  if(e.key === 'ArrowDown'){ e.preventDefault(); setVolume(masterVol - (e.shiftKey ? 1 : 5)); return; }
+  if(e.key === 'ArrowUp'){ e.preventDefault(); setVolume(vol[volKey()] + (e.shiftKey ? 1 : 5)); return; }
+  if(e.key === 'ArrowDown'){ e.preventDefault(); setVolume(vol[volKey()] - (e.shiftKey ? 1 : 5)); return; }
 
   const map = {
     '1':()=>setVideo('main'), '2':()=>setVideo('a'), '3':()=>setVideo('b'),
