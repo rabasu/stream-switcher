@@ -173,6 +173,8 @@ function build(ids, withSound){
            シークがクランプされた、といった食い違いを画面に出すため */
         onStateChange: ev => {
           stateOf[k] = ev.data;
+          // 再生が始まった位置は、描画のタイマーを待たずにここで採る
+          if(ev.data === ST.PLAYING) noteFirstPos(k);
           renderTransport();
         },
         onError: ev => {
@@ -715,14 +717,26 @@ const vdRaw = {main:null, a:null, b:null};  // 診断パネル用の生の値
 const ARCHIVE_CONFIRM_MS = 1500;       // アーカイブと決めるまで読みを保つ時間
 const LIVE_PAD = 3600;                 // ライブの getDuration() が返す詰め物の値
 const HEAD_EPS = 15;                   // これ以内から始まったら「頭から」とみなす(秒)
-const firstPos = {main:0, a:0, b:0};   // 再生が始まった位置。頭からか LIVE端か
+/* 再生が始まった位置。頭（0付近）からなら動画、LIVE端からならライブ。
+   null = まだ採れていない。0 も意味のある値なので null と区別する。
+   採るのは早いほどよい。裏のタブではタイマーが間引かれて描画が遅れるため、
+   タイマー任せにすると動画でも「ずっと先から始まった」ように見えてしまう。
+   プレーヤーの状態変化（再生開始）でも採る */
+const firstPos = {main:null, a:null, b:null};
+function noteFirstPos(k){
+  if(firstPos[k] !== null) return;
+  const cur = playerTime(k);
+  // 再生が始まるまで getCurrentTime() は 0 を返す。その 0 を「頭から始まった」と
+  // 読むと、ライブを動画と取り違える。最初の正の値を採る
+  if(cur !== null && cur > 0) firstPos[k] = cur;
+}
 /* ライブは長さが決まらないので、getDuration() がきっちり 3600 の詰め物を返す
    （原則1）。取り違えたときに終端が 60:00 で固定されるのはこれ。
 
    ただし長さが 3600 なだけでライブと決めてはいけない。本当に 60:00 ちょうどの
    動画（1時間耐久ものなど）を永久にライブ扱いしてしまう。始まった位置で分ける:
    動画は先頭から始まり、ライブは LIVE端（配信開始からの経過）から始まる。 */
-function paddedLive(k, d){ return d === LIVE_PAD && firstPos[k] > HEAD_EPS; }
+function paddedLive(k, d){ return d === LIVE_PAD && firstPos[k] !== null && firstPos[k] > HEAD_EPS; }
 /* 「配信は終了しました」を消したか（配信ごと）。シークバーに触れたら消す */
 const endedNoteOff = {main:false, a:false, b:false};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
@@ -749,7 +763,7 @@ function resetTransport(){
     isLiveNow[k] = null;
     vdSeen[k] = 0;
     vdRaw[k] = null;
-    firstPos[k] = 0;
+    firstPos[k] = null;
     endedNoteOff[k] = false;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
@@ -792,7 +806,7 @@ function probeVideoData(k){
   }
   if(canRewind[k] !== null) return;          // 決まっていれば読み直さない
   if(cur === null || cur <= 0) return;       // まだ再生が始まっていない
-  if(!firstPos[k]) firstPos[k] = cur;        // 始まった位置。頭からか LIVE端か
+  noteFirstPos(k);                           // 始まった位置。頭からか LIVE端か
   let vd = null;
   try{ vd = p.getVideoData(); }catch(e){ return; }
   if(!vd || typeof vd.isLive !== 'boolean') return;
@@ -1074,6 +1088,7 @@ function syncPlayerToLive(k){
   const tick = () => {
     const p = players[k];
     if(!p || !ready[k]) return;
+    noteFirstPos(k);        // 読み込み直後のここが、位置を採れるいちばん早い経路
     if(isArchive(k)){ try{ p.playVideo(); }catch(e){} renderTransport(); return; }
     // ライブかアーカイブかが読めるまでは、共通軸に合わせない（読めない
     // うちに合わせると、アーカイブを無関係な位置から始めてしまう）
@@ -1403,7 +1418,7 @@ function renderDiag(){
                       const cur = playerTime(k), end = archiveEnd(k);
                       return SRC_LABEL[k] + ' isLive=' + vd.isLive + ' dvr=' + vd.allowLiveDvr
                              + ' 位置=' + (cur === null ? '-' : Math.round(cur))
-                             + ' 開始=' + Math.round(firstPos[k])
+                             + ' 開始=' + (firstPos[k] === null ? '-' : Math.round(firstPos[k]))
                              + ' 長さ=' + Math.round(end);
                     }).join('\n            ') || '—')
   );
