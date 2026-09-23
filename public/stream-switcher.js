@@ -714,10 +714,15 @@ const vdSeen = {main:0, a:0, b:0};     // アーカイブと読めた最初の�
 const vdRaw = {main:null, a:null, b:null};  // 診断パネル用の生の値
 const ARCHIVE_CONFIRM_MS = 1500;       // アーカイブと決めるまで読みを保つ時間
 const LIVE_PAD = 3600;                 // ライブの getDuration() が返す詰め物の値
-/* ライブは長さが決まらないので、getDuration() がきっちり 3600 のような詰め物を
-   返す（原則1）。アーカイブの長さは端数を持つのが普通なので、ちょうど 3600 は
-   ライブの疑いが濃い。取り違えたときに終端が 60:00 で固定されるのはこれ */
-function paddedDuration(d){ return d === LIVE_PAD; }
+const HEAD_EPS = 15;                   // これ以内から始まったら「頭から」とみなす(秒)
+const firstPos = {main:0, a:0, b:0};   // 再生が始まった位置。頭からか LIVE端か
+/* ライブは長さが決まらないので、getDuration() がきっちり 3600 の詰め物を返す
+   （原則1）。取り違えたときに終端が 60:00 で固定されるのはこれ。
+
+   ただし長さが 3600 なだけでライブと決めてはいけない。本当に 60:00 ちょうどの
+   動画（1時間耐久ものなど）を永久にライブ扱いしてしまう。始まった位置で分ける:
+   動画は先頭から始まり、ライブは LIVE端（配信開始からの経過）から始まる。 */
+function paddedLive(k, d){ return d === LIVE_PAD && firstPos[k] > HEAD_EPS; }
 /* 「配信は終了しました」を消したか（配信ごと）。シークバーに触れたら消す */
 const endedNoteOff = {main:false, a:false, b:false};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
@@ -744,6 +749,7 @@ function resetTransport(){
     isLiveNow[k] = null;
     vdSeen[k] = 0;
     vdRaw[k] = null;
+    firstPos[k] = 0;
     endedNoteOff[k] = false;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
@@ -767,8 +773,10 @@ function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
      - 読み込んだ動画IDと getVideoData() の video_id が一致すること
      - 再生位置が入っていること（再生が始まる前の値は当てにならない）
      - 再生位置が終端を超えていないこと（超える = パディングされたライブ）
-     - 長さが詰め物（ちょうど 3600）でないこと。ライブは長さが決まらないので
-       getDuration() が詰め物を返す。取り違えると終端が 60:00 で固定される
+     - 長さが詰め物（ちょうど 3600）で、かつ先頭から始まっていないのでない
+       こと。ライブは長さが決まらないので getDuration() が詰め物を返し、
+       取り違えると終端が 60:00 で固定される。ただし長さだけで決めると、
+       本当に 60:00 の動画を永久にライブ扱いするので始まった位置も見る
      - 同じ読みが ARCHIVE_CONFIRM_MS 続くこと
    ライブ（isLive:true）は取り違えても軽いので、読めた時点で決めてよい */
 function probeVideoData(k){
@@ -778,12 +786,13 @@ function probeVideoData(k){
   const end = archiveEnd(k);
   // アーカイブと決めたのに再生位置が終端を超えた。アーカイブではありえないので
   // 読み違い。決め直させる（ライブの getDuration() はパディングされる）
-  if(isLiveNow[k] === false && (paddedDuration(end)
+  if(isLiveNow[k] === false && (paddedLive(k, end)
       || (cur !== null && end > 0 && cur > end + 1))){
     isLiveNow[k] = null; canRewind[k] = null; vdSeen[k] = 0;
   }
   if(canRewind[k] !== null) return;          // 決まっていれば読み直さない
   if(cur === null || cur <= 0) return;       // まだ再生が始まっていない
+  if(!firstPos[k]) firstPos[k] = cur;        // 始まった位置。頭からか LIVE端か
   let vd = null;
   try{ vd = p.getVideoData(); }catch(e){ return; }
   if(!vd || typeof vd.isLive !== 'boolean') return;
@@ -796,7 +805,7 @@ function probeVideoData(k){
     return;
   }
   if(end > 0 && cur > end + 1) return;        // 終端を超えている = ライブ
-  if(paddedDuration(end)) return;             // 長さが詰め物のまま = ライブ
+  if(paddedLive(k, end)) return;              // 長さが詰め物で、頭からでもない
   const now = performance.now();
   if(!vdSeen[k]){ vdSeen[k] = now; return; }  // 一度きりの読みでは決めない
   if(now - vdSeen[k] < ARCHIVE_CONFIRM_MS) return;
@@ -1394,6 +1403,7 @@ function renderDiag(){
                       const cur = playerTime(k), end = archiveEnd(k);
                       return SRC_LABEL[k] + ' isLive=' + vd.isLive + ' dvr=' + vd.allowLiveDvr
                              + ' 位置=' + (cur === null ? '-' : Math.round(cur))
+                             + ' 開始=' + Math.round(firstPos[k])
                              + ' 長さ=' + Math.round(end);
                     }).join('\n            ') || '—')
   );

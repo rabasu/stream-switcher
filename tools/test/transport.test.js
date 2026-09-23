@@ -873,7 +873,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
-  /* 32. それでもアーカイブは、少し待てばきちんとアーカイブと判る */
+  /* 32. 本当に 60:00 ちょうどの動画（1時間耐久ものなど）は、長さが詰め物と
+         同じ値でもアーカイブと分かること。長さだけで決めると永久にライブ扱いに
+         なってしまう。動画は先頭から始まり、ライブは LIVE端から始まる */
+  {
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID], elapsed: 3600 });
+    await sleep(2000);
+    const st = await page.evaluate(() => ({
+      pos: document.getElementById('posLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden,
+      label: document.getElementById('offsetLabel').textContent
+    }));
+    check('長さがちょうど 60:00 の動画も、アーカイブと分かる',
+          !st.posHidden && /\/ 60:00$/.test(st.pos.trim()),
+          '経過表示 hidden=' + st.posHidden + ' / "' + st.pos + '" / ピル "' + st.label + '"');
+    await ctx.close();
+  }
+
+  /* 33. それでもアーカイブは、少し待てばきちんとアーカイブと判る */
   {
     const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     await sleep(1500);
