@@ -117,6 +117,9 @@ window.onYouTubeIframeAPIReady = () => {
   if(pending){ build(pending, pendingSound); pending = null; }
 };
 
+/* 読み込んだ動画ID。getVideoData() が本当にこの動画のものかを照合する */
+const loadedId = {main:null, a:null, b:null};
+
 /* withSound: 読み込むボタン経由。クリック済みでブラウザの自動再生の
    条件を満たしているので、最初から音を出せる。共有URLから開いたときは
    ジェスチャーが無いので、音を止めたまま始めてチップで解除してもらう */
@@ -131,7 +134,9 @@ function build(ids, withSound){
   KEYS.forEach(k => {
     if(players[k]){ players[k].destroy(); players[k] = null; }
     ready[k] = false;
+    loadedId[k] = null;
     if(!ids[k]) return;
+    loadedId[k] = ids[k];         // getVideoData() が本物か照合するために覚える
     const holder = document.getElementById('layer-'+k);
     holder.replaceChildren();
     const host = document.createElement('div');
@@ -705,6 +710,9 @@ const stateOf = {main:ST.UNSTARTED, a:ST.UNSTARTED, b:ST.UNSTARTED};
 const canRewind = {main:null, a:null, b:null};
 /* 配信中か。false = アーカイブ / null = まだ分からない */
 const isLiveNow = {main:null, a:null, b:null};
+const vdSeen = {main:0, a:0, b:0};     // アーカイブと読めた最初の時刻(ms)
+const vdRaw = {main:null, a:null, b:null};  // 診断パネル用の生の値
+const ARCHIVE_CONFIRM_MS = 1500;       // アーカイブと決めるまで読みを保つ時間
 /* 「配信は終了しました」を消したか（配信ごと）。シークバーに触れたら消す */
 const endedNoteOff = {main:false, a:false, b:false};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
@@ -729,6 +737,8 @@ function resetTransport(){
     stateOf[k] = ST.UNSTARTED;
     canRewind[k] = null;
     isLiveNow[k] = null;
+    vdSeen[k] = 0;
+    vdRaw[k] = null;
     endedNoteOff[k] = false;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
@@ -742,20 +752,47 @@ function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
 
 /* 読み込んだものがライブかアーカイブか、巻き戻せるかを読む。公式 API には
    無いが、getVideoData() の isLive / allowLiveDvr で分かる（実機で確認済み）。
-   読み込み直後はまだ読めないので、読めるまで呼ぶたびに試す。読めない環境では
-   null のまま */
+   読めるまで呼ぶたびに試し、読めたら確定する。読めない環境では null のまま。
+
+   ここを一度読めた値で即決めると、ライブをアーカイブ扱いしてしまう。
+   動画が載る前の getVideoData() は中身が揃っておらず、ライブでも
+   isLive:false が返る（実機で、ライブなのに SYNC が出る形で発覚）。
+   取り違えの影響はアーカイブ側に倒したときのほうが大きい（シークの軸も
+   表示も全部変わる）ので、アーカイブと決めるときだけ手順を踏む:
+     - 読み込んだ動画IDと getVideoData() の video_id が一致すること
+     - 再生位置が入っていること（再生が始まる前の値は当てにならない）
+     - 再生位置が終端を超えていないこと（超える = パディングされたライブ）
+     - 同じ読みが ARCHIVE_CONFIRM_MS 続くこと
+   ライブ（isLive:true）は取り違えても軽いので、読めた時点で決めてよい */
 function probeVideoData(k){
-  if(canRewind[k] !== null) return;          // 読めたら確定。読み直さない
   const p = players[k];
   if(!p || !ready[k] || typeof p.getVideoData !== 'function') return;
-  try{
-    const vd = p.getVideoData();
-    if(!vd || typeof vd.isLive !== 'boolean') return;
-    isLiveNow[k] = vd.isLive;
-    // アーカイブは普通の動画なので自由にシークできる。
-    // ライブは配信者の DVR 設定次第
-    canRewind[k] = vd.isLive ? vd.allowLiveDvr !== false : true;
-  }catch(e){}
+  const cur = playerTime(k);
+  const end = archiveEnd(k);
+  // アーカイブと決めたのに再生位置が終端を超えた。アーカイブではありえないので
+  // 読み違い。決め直させる（ライブの getDuration() はパディングされる）
+  if(isLiveNow[k] === false && cur !== null && end > 0 && cur > end + 1){
+    isLiveNow[k] = null; canRewind[k] = null; vdSeen[k] = 0;
+  }
+  if(canRewind[k] !== null) return;          // 決まっていれば読み直さない
+  if(cur === null || cur <= 0) return;       // まだ再生が始まっていない
+  let vd = null;
+  try{ vd = p.getVideoData(); }catch(e){ return; }
+  if(!vd || typeof vd.isLive !== 'boolean') return;
+  vdRaw[k] = vd;
+  // 別の動画の（または空の）メタデータ。この動画のものが載るまで待つ
+  if(loadedId[k] && vd.video_id && vd.video_id !== loadedId[k]) return;
+  if(vd.isLive){
+    isLiveNow[k] = true;
+    canRewind[k] = vd.allowLiveDvr !== false;   // 配信者の DVR 設定次第
+    return;
+  }
+  if(end > 0 && cur > end + 1) return;        // 終端を超えている = ライブ
+  const now = performance.now();
+  if(!vdSeen[k]){ vdSeen[k] = now; return; }  // 一度きりの読みでは決めない
+  if(now - vdSeen[k] < ARCHIVE_CONFIRM_MS) return;
+  isLiveNow[k] = false;
+  canRewind[k] = true;                        // アーカイブは自由にシークできる
 }
 function readRewind(k){ probeVideoData(k); return canRewind[k]; }
 /* 配信中ではない = アーカイブ（普通の動画）か */
@@ -1341,7 +1378,15 @@ function renderDiag(){
                       const r = readRewind(k);
                       return SRC_LABEL[k] + (r === false ? ' 不可' : r === true ? ' 可' : ' ?')
                              + (isArchive(k) ? '(アーカイブ)' : '');
-                    }).join(' / ') || '—')
+                    }).join(' / ') || '—') + '\n',
+    // 判定の材料そのもの。実機で取り違えが起きたときに確かめられるように出す
+    '判定材料    ' + (KEYS.filter(k => players[k]).map(k => {
+                      const vd = vdRaw[k] || {};
+                      const cur = playerTime(k), end = archiveEnd(k);
+                      return SRC_LABEL[k] + ' isLive=' + vd.isLive + ' dvr=' + vd.allowLiveDvr
+                             + ' 位置=' + (cur === null ? '-' : Math.round(cur))
+                             + ' 長さ=' + Math.round(end);
+                    }).join('\n            ') || '—')
   );
 }
 function toggleDiag(){

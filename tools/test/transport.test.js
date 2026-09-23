@@ -833,6 +833,42 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 30. ライブをアーカイブ扱いしないこと。動画が載る前の getVideoData() は
+         中身が揃っておらず、ライブでも isLive:false が返る。その1回を握ると
+         ライブなのに SYNC が出る（実機で出た不具合）。
+         a) video_id が空のまま返る場合  b) IDは載ったが isLive がまだ false */
+  for(const [name, cfg] of [
+    ['メタデータが空のまま返る', { emptyMeta: [MAIN_ID], metaMs: 2500 }],
+    ['isLive がまだ false で返る', { lateLive: [MAIN_ID], metaMs: 1000 }]
+  ]){
+    const { ctx, page } = await session(Object.assign({ keys: ['main','a'] }, cfg));
+    await sleep(2500);                       // メタデータが揃うのを待つ
+    const st = await page.evaluate(() => ({
+      label: document.getElementById('offsetLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden,
+      multi: !document.getElementById('multiScrub').hidden
+    }));
+    check('ライブをアーカイブ扱いしない（' + name + '）',
+          st.label === 'LIVE' && st.posHidden && !st.multi,
+          'ピル "' + st.label + '" / 経過表示 hidden=' + st.posHidden
+            + ' / 動画ごとのバー=' + st.multi);
+    await ctx.close();
+  }
+
+  /* 31. それでもアーカイブは、少し待てばきちんとアーカイブと判る */
+  {
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
+    await sleep(1500);
+    const st = await page.evaluate(() => ({
+      pos: document.getElementById('posLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden
+    }));
+    check('アーカイブは（慎重に判定しても）アーカイブと判る',
+          !st.posHidden && /\d+:\d\d \/ \d+:\d\d/.test(st.pos),
+          '経過表示 hidden=' + st.posHidden + ' / "' + st.pos + '"');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

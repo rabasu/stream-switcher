@@ -5,6 +5,9 @@
      - 再生が始まるまで getCurrentTime() は 0 を返す
      - 配信者が DVR を無効にしたライブは seekTo を黙って無視する（CFG.noDvr）
      - 配信が終わると再生が止まり ENDED になる（endStream()）
+     - 動画が載るまで getVideoData() の中身が揃わない（CFG.emptyMeta: video_id が
+       空 / CFG.lateLive: isLive がまだ false）。ライブなのに isLive:false が
+       返るのを再現する。実機で、ライブに SYNC が出る形で発覚した
      - アーカイブ（CFG.archive）は普通の動画。isLive が false で、getDuration() は
        再生位置と同じ軸の「終端」を返し、頭から終端まで自由にシークできる
    本物に無いもの: seek の着地遅延、セグメント粒度、LIVE端への自動追いつき。
@@ -16,6 +19,7 @@ window.__FAKE = { players: {} };
   const ELAPSED0 = CFG.elapsed != null ? CFG.elapsed : 600;   // 配信開始からの経過(秒)
   const DVR      = CFG.dvr     != null ? CFG.dvr     : 100000; // さかのぼれる長さ(秒)
   const PAD      = CFG.pad     != null ? CFG.pad     : 3600;   // getDuration() のパディング
+  const META_MS  = CFG.metaMs  != null ? CFG.metaMs  : 2500;   // メタデータが揃うまで(ms)
 
   function now(){ return performance.now() / 1000; }
 
@@ -31,6 +35,7 @@ window.__FAKE = { players: {} };
     this.muted = true;
     this.posBase = 0;
     this.posWall = now();
+    this.startedAt = 0;
     // アーカイブ（配信済みの動画）は endAt で長さが決まり、伸びない
     this.live = (CFG.archive || []).indexOf(opt.videoId) < 0;
     // 長さは動画ごとに変えられる（CFG.lengths）。既定は ELAPSED0
@@ -85,7 +90,20 @@ window.__FAKE = { players: {} };
   FakePlayer.prototype.noDvr = function(){
     return this.live && (CFG.noDvr || []).indexOf(this.videoId) >= 0;
   };
+  /* 再生が始まってしばらくは、この動画のメタデータがまだ載っていない。
+     本物もこの時期はライブでも isLive:false を返す（実機で確認） */
+  FakePlayer.prototype.metaYoung = function(){
+    return !this.started || (now() - this.startedAt) * 1000 < META_MS;
+  };
   FakePlayer.prototype.getVideoData = function(){
+    if(this.metaYoung()){
+      // 動画が載る前。中身が空で、ライブかどうかも分からない
+      if((CFG.emptyMeta || []).indexOf(this.videoId) >= 0)
+        return { video_id: '', isLive: false, allowLiveDvr: true };
+      // IDは載ったが、ライブかどうかがまだ反映されていない
+      if((CFG.lateLive || []).indexOf(this.videoId) >= 0)
+        return { video_id: this.videoId, isLive: false, allowLiveDvr: true };
+    }
     return { video_id: this.videoId, isLive: this.live, allowLiveDvr: !this.noDvr() };
   };
   FakePlayer.prototype.seekTo = function(t){
@@ -101,6 +119,7 @@ window.__FAKE = { players: {} };
     if(!this.started){
       // ライブは再生が始まった瞬間に LIVE端へ着く。アーカイブは頭から
       this.started = true;
+      this.startedAt = now();
       this.posBase = this.live ? this.edge() : 0;
       this.posWall = now();
     }
