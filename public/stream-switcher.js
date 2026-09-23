@@ -1277,17 +1277,16 @@ function renderGroupSeek(){
   b.hidden = KEYS.filter(k => players[k]).length < 2;
   b.setAttribute('aria-pressed', String(groupSeek));
   b.title = groupSeek
-    ? 'まとめてシーク ON — シークは全部に効きます（ズレは保ったまま）'
-    : 'まとめてシーク OFF — シークは今映しているものだけに効きます。'
-      + '開始時刻が違う動画の頭出しに使います';
+    ? 'まとめてシーク ON'
+    : 'まとめてシーク OFF';
 }
 function toggleGroupSeek(){
   groupSeek = !groupSeek;
   renderGroupSeek();
   renderTransport();          // 動画ごとのバーの出し入れを、押した瞬間に見せる
   setStatusLine(groupSeek
-    ? 'まとめてシーク ON。シークは全部に効きます'
-    : 'まとめてシーク OFF。シークは今映しているものだけに効きます');
+    ? 'まとめてシーク ON'
+    : 'まとめてシーク OFF');
 }
 /* 配信が終わったことを映像の上に出す。巻き戻せるかどうかとは関係なく出す。
    巻き戻し始めたら（シークバーに触れたら）邪魔なので消す。
@@ -1310,7 +1309,7 @@ function renderRewind(scrub){
   scrub.title = !any
     ? (blocked.length ? noRewindMessage(blocked) : '')
     : (!seekable(videoSrc) && players[videoSrc])
-      ? SRC_LABEL[videoSrc] + ' は配信者が巻き戻しを無効にしています。シークは ' + others + ' にだけ効きます'
+      ? SRC_LABEL[videoSrc] + ' 巻き戻しできない配信です'
       : '';
 }
 
