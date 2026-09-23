@@ -92,10 +92,24 @@
 </div>
 
 <div id="setupAnchor" hidden></div>
-<button type="button" id="centerBtn" title="一時停止 (K)" aria-label="一時停止">
+<!-- 映像の中央に出す操作。再生 / 一時停止と、その左右に 10秒送り。
+     出す条件は3つとも同じ（PC はカーソルが映像上にあるあいだ、タッチは
+     画面を触ってから少しのあいだ）。10秒送りは data-seek なので、
+     まとめてシークの ON/OFF も巻き戻せない配信の判定もそのまま効く -->
+<div id="centerControls">
+<button type="button" id="back10" class="centerCtl" data-seek="10" title="10秒戻る (←)" aria-label="10秒戻る">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+  <span class="ctlNum">10</span>
+</button>
+<button type="button" id="centerBtn" class="centerCtl" title="一時停止 (K)" aria-label="一時停止">
   <svg class="iconPause" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
   <svg class="iconPlay" viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
 </button>
+<button type="button" id="fwd10" class="centerCtl" data-seek="-10" title="10秒進む (→)" aria-label="10秒進む">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 13c0 3.31-2.69 6-6 6s-6-2.69-6-6 2.69-6 6-6v4l5-5-5-5v4c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8h-2z"/></svg>
+  <span class="ctlNum">10</span>
+</button>
+</div>
 
 <!-- 共有URLから開くと自動再生のため無音で始まる。押せば解決するチップを
      操作バーの上に出す。チップを押すか、音声を選べば解ける -->
@@ -160,18 +174,40 @@
     <button class="pill srcBtn" data-vid="a" data-k="a">VC-A<kbd>2</kbd></button>
     <button class="pill srcBtn" data-vid="b" data-k="b">VC-B<kbd>3</kbd></button>
     <div class="barTail" id="videoTail">
+      <!-- ズレを付けているあいだだけ出る、動画ごとのシークバー。
+           1本ずつ頭出しでき、連動 ON なら一緒に動くのが目に見える -->
+      <div id="multiScrub" hidden>
+        <div class="msRow" data-ms="main" hidden>
+          <span class="msLabel">MAIN</span>
+          <input type="range" min="0" max="600" value="0" step="1" aria-label="MAIN の再生位置">
+          <span class="msTime"></span>
+        </div>
+        <div class="msRow" data-ms="a" hidden>
+          <span class="msLabel">VC-A</span>
+          <input type="range" min="0" max="600" value="0" step="1" aria-label="VC-A の再生位置">
+          <span class="msTime"></span>
+        </div>
+        <div class="msRow" data-ms="b" hidden>
+          <span class="msLabel">VC-B</span>
+          <input type="range" min="0" max="600" value="0" step="1" aria-label="VC-B の再生位置">
+          <span class="msTime"></span>
+        </div>
+      </div>
       <div id="timeline">
         <button type="button" id="playBtn" title="一時停止 (K)" aria-label="一時停止">
           <svg class="iconPause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
           <svg class="iconPlay" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
         </button>
+        <!-- OFF にすると、シークは今映しているものだけに効く。動画ごとに
+             開始時刻が違うアーカイブの頭出しに使う。シークバーの幅を取りたい
+             ので、再生ボタンの隣にアイコンだけで置く -->
+        <button type="button" id="groupSeek" aria-pressed="true" aria-label="まとめてシーク">
+          <svg class="iconLink" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+          <svg class="iconLinkOff" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M17 7h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1 0 1.43-.98 2.63-2.31 2.98l1.46 1.46C21.88 15.61 23 13.95 23 12c0-2.76-2.24-5-5-5zm-1.81 4H16v2h-.81l-2-2zM2 4.27l3.11 3.11C3.29 8.12 2 9.91 2 12c0 2.76 2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1 0-1.59 1.21-2.9 2.76-3.07L8.73 11H8v2h2.73L13 15.27V17h1.73l4.01 4L20 19.74 3.27 3 2 4.27z"/></svg>
+        </button>
         <input type="range" id="scrub" min="0" max="600" value="600" step="1">
         <!-- アーカイブ（動画）のときだけ出す、経過 / 全体の時間 -->
         <span id="posLabel" hidden></span>
-        <!-- OFF にすると、シークは今映しているものだけに効く。動画ごとに
-             開始時刻が違うアーカイブの頭出しに使う -->
-        <button type="button" class="switch" id="groupSeek" role="switch" aria-checked="true"
-                aria-label="まとめてシーク"><span>まとめて</span><span class="switchTrack" aria-hidden="true"><span class="switchKnob"></span></span></button>
         <button class="pill live" id="golive" title="LIVEの最先端へ (L)">
           <span class="liveDot" aria-hidden="true"></span><span id="offsetLabel">LIVE</span><kbd>L</kbd>
         </button>
@@ -258,16 +294,16 @@
       <tr><td>Space</td><td>2本を交互に切り替える。既定では映像と音声の両方が動きます。行き来する2本は A ⇄ B ボタン右端の ▾ から選べます（MAIN ⇄ VC-A など）。組の外にいるときは1本目に入ります。同時再生中は、組のうち鳴っているほうだけが入れ替わり、他はそのまま鳴り続けます</td></tr>
       <tr><td>S</td><td>Space で切り替える対象を <b>音声&amp;映像</b> / <b>音声</b> で切り替える（A ⇄ B の右のトグルと同じ）。映像も動かす設定のあいだは、往復のたびに画質が落ちないよう省帯域モードを自動で一時解除します</td></tr>
       <tr><td>Q / W / E</td><td>音声を MAIN / VC-A / VC-B にする。同時再生が ON のときは、押すたびに足す / 外すになります。読み込んでいない配信は選べません（ボタンも薄く表示されます）</td></tr>
-      <tr><td>M</td><td>音量を 0 にする / 戻す。音声の選択はそのまま残るので、戻すと同じ配信が鳴ります</td></tr>
+      <tr><td>M</td><td>音量を 0 にする / 戻す。音声の選択はそのまま残るので、戻すと同じ配信が鳴ります（配信ごとの音量も保たれます）</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
-      <tr><td>↑ ↓</td><td>全体音量を 5 ずつ増減（Shift併用で 1 ずつ）</td></tr>
+      <tr><td>↑ ↓</td><td>今映している配信の音量を 5 ずつ増減（Shift併用で 1 ずつ）。音量は配信ごとに覚えるので、同時再生で実況とチームVCを混ぜるときに片方だけ下げられます</td></tr>
       <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）。アーカイブ（配信済みの動画）を見ているときは SYNC になり、他の動画を今映している動画と同じ位置へ揃えます</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
       <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像にカーソルを置くと中央に出るボタンでも同じです</td></tr>
-      <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）。配信者が巻き戻しを無効にしている配信は LIVE のまま流れ、戻せる配信だけが動きます（診断パネル D で確認できます）</td></tr>
+      <tr><td>← →</td><td>10秒 戻る / 進む（3本同時）。映像の中央に出る ⟲10 / 10⟳ のボタンでも同じです。配信者が巻き戻しを無効にしている配信は LIVE のまま流れ、戻せる配信だけが動きます（診断パネル D で確認できます）</td></tr>
       <tr><td>Shift + ← →</td><td>30秒 戻る / 進む</td></tr>
-      <tr><td>まとめてシーク</td><td>シークバーの右にあるスイッチです。ON のあいだは、シークすると全部が「いまのズレを保ったまま」同じだけ動きます。OFF にすると今映しているものだけが動くので、開始時刻が違うアーカイブを1本ずつ頭出しして揃えられます。揃え終えたら ON に戻して見てください（揃え直したいときは SYNC）</td></tr>
+      <tr><td>まとめてシーク</td><td>再生ボタンの隣にある鎖のアイコンです。ON のあいだは、シークすると全部が「いまのズレを保ったまま」同じだけ動きます。OFF にすると今映しているものだけが動くので、開始時刻が違うアーカイブを1本ずつ頭出しして揃えられます。揃え終えたら ON に戻して見てください（揃え直したいときは SYNC）</td></tr>
 
       <tr><th colspan="2">画面と調整</th></tr>
       <tr><td>R</td><td>同時再生のオン / オフ。オンのあいだは音声ボタンと Q/W/E が「足す / 外す」になり、最大3本まで混ぜられます（MAIN + VC-A など）。最後の1本は外せません（消すときは M）</td></tr>
@@ -282,8 +318,9 @@
       <tr><td>同時再生</td><td>音声の行の右端にあるスイッチです。ONにすると音声ボタンが「切り替え」から「足す / 外す」に変わり、最大3本を混ぜて同時に聴けます（MAIN + VC-A など）。最後の1本は外せません。OFFに戻すと、そのとき鳴っている先頭の1本に絞られます。配信が1本だけのときは押せません</td></tr>
       <tr><td>消音</td><td>端末の音量ボタンで下げてください</td></tr>
       <tr><td>LIVE</td><td>赤く点灯しているときも押せます。少し遅れているときに押すと追いつきます。アーカイブでは SYNC になり、他の動画を今映している動画と同じ位置へ揃えます</td></tr>
-      <tr><td>まとめてシーク</td><td>シークバーの右のスイッチです。OFF にすると今映しているものだけがシークできるので、開始時刻が違うアーカイブを1本ずつ頭出しできます。ON に戻すと、そのズレを保ったまま全部が一緒に動きます</td></tr>
+      <tr><td>まとめてシーク</td><td>再生ボタンの隣にある鎖のアイコンです。OFF（鎖が切れた赤い絵）にすると今映しているものだけがシークできるので、開始時刻が違うアーカイブを1本ずつ頭出しできます。ON に戻すと、そのズレを保ったまま全部が一緒に動きます</td></tr>
       <tr><td>停止</td><td>シークバー左の ⏸ で止まります。映像を軽く触ると中央にもボタンが出ます</td></tr>
+      <tr><td>10秒送り</td><td>映像を軽く触ると、中央のボタンの左右に ⟲10 / 10⟳ が出ます。シークバーでの細かい調整が難しいときに使ってください。まとめてシークが OFF なら、今映しているものだけが動きます</td></tr>
       <tr><td>横画面</td><td>配信URLの変更は縦画面に戻して行ってください</td></tr>
       <tr><td>通信量</td><td>配信を3本まで同時に受信します。モバイル回線ではご注意ください</td></tr>
     </table>

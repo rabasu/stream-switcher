@@ -58,7 +58,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const browser = await chromium.launch(launchOpts);
 
   async function session(cfg){
-    const ctx = await browser.newContext({ viewport:{width:1280, height:800} });
+    const ctx = await browser.newContext(
+      (cfg && cfg.phone)
+        // スマホ想定。isTouch は (hover:none) and (pointer:coarse) で判定される
+        ? { viewport:{width:390, height:844}, hasTouch:true, isMobile:true, deviceScaleFactor:3 }
+        : { viewport:{width:1280, height:800} });
     await ctx.addInitScript('window.__FAKECFG = ' + JSON.stringify(cfg || {}) + ';');
     await ctx.addInitScript(FAKE);
     const page = await ctx.newPage();
@@ -81,6 +85,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return p.edge() - p.getCurrentTime();
   });
   const label = page => page.textContent('#offsetLabel');
+  // アーカイブの「経過 / 全体」。ピルは SYNC 固定なので、位置はこちらで見る
+  const posText = page => page.textContent('#posLabel');
 
   console.log('\n=== ' + PUB + ' ===');
 
@@ -462,9 +468,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     await page.evaluate(() => document.getElementById('playBtn').click());
     await sleep(1000);
-    const a = await label(page);
+    const a = await posText(page);
     await sleep(4000);
-    const b = await label(page);
+    const b = await posText(page);
     check('アーカイブを一時停止しても遅れ表示が増えていかない',
           a === b,
           '停止直後 "' + a + '" → 4秒後 "' + b + '"');
@@ -590,6 +596,311 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     check('SYNC で、他の動画が今映している動画と同じ位置に揃う',
           Math.abs(synced.main - synced.a) < 8,
           'MAIN ' + synced.main.toFixed(1) + '秒 / VC-A ' + synced.a.toFixed(1) + '秒');
+    await ctx.close();
+  }
+
+  /* 25. スマホでシークバーが画面幅のほとんどを取ること。数時間のアーカイブを
+         指で送るので、幅がそのまま操作精度になる。操作類（再生 / 連動 /
+         経過 / SYNC）と同じ行に並べると、バーが画面の半分も無くなっていた */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], archive: [MAIN_ID], phone: true });
+    const m = await page.evaluate(() => {
+      const r = document.getElementById('scrub').getBoundingClientRect();
+      const pill = document.getElementById('golive').getBoundingClientRect();
+      return { w: r.width, vw: window.innerWidth, barBottom: r.bottom, pillTop: pill.top };
+    });
+    check('スマホではシークバーが画面幅のほとんどを取る',
+          m.w / m.vw > 0.8,
+          'バー ' + Math.round(m.w) + 'px / 画面 ' + m.vw + 'px（'
+            + Math.round(m.w / m.vw * 100) + '%）');
+    check('スマホではシークバーと操作類が同じ行に並ばない',
+          m.barBottom <= m.pillTop + 1,
+          'バーの下端 ' + Math.round(m.barBottom) + 'px / ボタンの上端 ' + Math.round(m.pillTop) + 'px');
+    await ctx.close();
+  }
+
+  /* 26. ズレを付けているあいだは、動画ごとのシークバーを並べて見せる。
+         鎖アイコンだけでは「別々の位置で再生している」「連動している」が
+         伝わらないので、状態を絵にする */
+  {
+    const A_ID = 'BBBBBBBBBBB';
+    const { ctx, page } = await session({
+      keys: ['main','a'], archive: [MAIN_ID, A_ID],
+      lengths: {[MAIN_ID]: 900, [A_ID]: 1500}
+    });
+    const view = () => page.evaluate(() => ({
+      multi: !document.getElementById('multiScrub').hidden,
+      rows: Array.from(document.querySelectorAll('#multiScrub .msRow')).filter(r => !r.hidden).length,
+      single: !document.getElementById('scrub').hidden,
+      linked: document.getElementById('multiScrub').classList.contains('linked')
+    }));
+    const pos = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']) o[k] = window.__FAKE.players['p-'+k].getCurrentTime();
+      return o;
+    });
+    const dragRow = (k, v) => page.evaluate(([key, val]) => {
+      const bar = document.querySelector('#multiScrub .msRow[data-ms="' + key + '"] input');
+      bar.value = String(val);
+      bar.dispatchEvent(new Event('input', {bubbles:true}));
+      bar.dispatchEvent(new Event('change', {bubbles:true}));
+    }, [k, v]);
+    const toggleLink = () => page.evaluate(() => document.getElementById('groupSeek').click());
+
+    const v0 = await view();
+    check('既定（ズレ無し・連動）ではシークバーは1本のまま',
+          v0.single && !v0.multi,
+          '共通バー=' + v0.single + ' / 動画ごと=' + v0.multi);
+
+    await toggleLink();                       // 連動を切る = ズレを付けにいく
+    const v1 = await view();
+    check('連動を切ると、読み込んでいる動画のぶんだけバーが並ぶ',
+          v1.multi && v1.rows === 2 && !v1.single && !v1.linked,
+          '動画ごと=' + v1.multi + ' / 本数=' + v1.rows + ' / 共通バー=' + v1.single
+            + ' / 緑枠=' + v1.linked);
+
+    await dragRow('main', 120);               // MAIN だけ頭出し
+    await sleep(1200);
+    const solo = await pos();
+    check('並んだバーは、掴んだ動画だけを動かす',
+          Math.abs(solo.main - 120) < 8 && solo.a < 40,
+          'MAIN ' + solo.main.toFixed(1) + '秒 / VC-A ' + solo.a.toFixed(1) + '秒');
+
+    await toggleLink();                       // 連動に戻す
+    const v2 = await view();
+    check('連動に戻してもバーは並んだまま（つまみが緑枠になる）',
+          v2.multi && v2.linked,
+          '動画ごと=' + v2.multi + ' / 緑枠=' + v2.linked);
+
+    const before = await pos();
+    await dragRow('main', 300);
+    await sleep(1200);
+    const after = await pos();
+    const gap0 = before.main - before.a, gap1 = after.main - after.a;
+    check('連動中は、1本を動かすと残りもズレを保ったまま動く',
+          Math.abs(after.main - 300) < 8 && Math.abs(gap1 - gap0) < 8
+            && after.a - before.a > 150,
+          'MAIN ' + after.main.toFixed(1) + '秒 / VC-A ' + before.a.toFixed(1) + ' → '
+            + after.a.toFixed(1) + '秒 / ズレ ' + gap0.toFixed(1) + ' → ' + gap1.toFixed(1) + '秒');
+
+    await page.evaluate(() => document.getElementById('golive').click());   // SYNC
+    await sleep(1200);
+    const v3 = await view();
+    const synced = await pos();
+    check('SYNC で揃えるとバーは1本に畳まれる',
+          v3.single && !v3.multi && Math.abs(synced.main - synced.a) < 8,
+          '共通バー=' + v3.single + ' / 動画ごと=' + v3.multi
+            + ' / MAIN ' + synced.main.toFixed(1) + '秒 VC-A ' + synced.a.toFixed(1) + '秒');
+    await ctx.close();
+  }
+
+  /* 27. 映像の上の 10秒送り。シークバーだけでは細かい調整ができないので、
+         再生ボタンと同じ条件で出す。まとめてシークの ON/OFF も反映する */
+  {
+    const A_ID = 'BBBBBBBBBBB';
+    const { ctx, page } = await session({ keys: ['main','a'], phone: true });
+    const pos = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']){
+        const p = window.__FAKE.players['p-'+k];
+        o[k] = p.edge() - p.getCurrentTime();     // LIVE端からの遅れ
+      }
+      return o;
+    });
+    /* 出る条件が再生ボタンと同じであること（タッチは触ってから少しのあいだ）。
+       opacity は 0.25秒かけて変わるので、切り替えた直後に読むと途中の値
+       （＝変える前の値）が返る。終わるまで待ってから読む */
+    const opacities = () => page.evaluate(() => ['centerControls']
+      .map(id => getComputedStyle(document.getElementById(id)).opacity));
+    await page.evaluate(() => document.body.classList.add('center-hidden'));
+    await sleep(600);
+    const hiddenOpacity = await opacities();
+    await page.evaluate(() => document.body.classList.remove('center-hidden'));
+    await sleep(600);
+    const vis = { hidden: hiddenOpacity, shown: await opacities() };
+    check('10秒送りは、中央の再生ボタンと同じ条件で出入りする',
+          vis.hidden.every(o => o === '0') && vis.shown.every(o => o === '1'),
+          '隠すとき ' + vis.hidden.join('/') + ' → 出すとき ' + vis.shown.join('/'));
+
+    const before = await pos();
+    await page.evaluate(() => document.getElementById('back10').click());
+    await sleep(1500);
+    const back = await pos();
+    check('映像の上の 10秒戻るで、実際に10秒戻る（まとめてシーク ON なら全部）',
+          Math.abs(back.main - before.main - 10) < 4 && Math.abs(back.a - before.a - 10) < 4,
+          'MAIN ' + (back.main - before.main).toFixed(1) + '秒 / VC-A '
+            + (back.a - before.a).toFixed(1) + '秒 戻った');
+
+    await page.evaluate(() => document.getElementById('fwd10').click());
+    await sleep(1500);
+    const fwd = await pos();
+    check('映像の上の 10秒進むで、戻したぶんが戻る',
+          Math.abs(fwd.main - before.main) < 4,
+          '遅れ ' + before.main.toFixed(1) + '秒 → ' + back.main.toFixed(1)
+            + '秒 → ' + fwd.main.toFixed(1) + '秒');
+
+    // まとめてシークを切ると、今映しているものだけ
+    await page.evaluate(() => document.getElementById('groupSeek').click());
+    const b2 = await pos();
+    await page.evaluate(() => document.getElementById('back10').click());
+    await sleep(1500);
+    const solo = await pos();
+    check('まとめてシーク OFF なら、10秒送りも今映しているものだけに効く',
+          Math.abs(solo.main - b2.main - 10) < 4 && Math.abs(solo.a - b2.a) < 4,
+          'MAIN ' + (solo.main - b2.main).toFixed(1) + '秒 / VC-A '
+            + (solo.a - b2.a).toFixed(1) + '秒（VC-A は 0 であるべき）');
+    await ctx.close();
+  }
+
+  /* 28. PC で、カーソルをボタンに乗せても消えないこと。
+         ボタンは #shield の子ではないので、乗せた瞬間に #shield の :hover が
+         外れる。1つずつ出していたときは、それで隣のボタンが消えていた */
+  {
+    const { ctx, page } = await session({ keys: ['main'] });
+    const ctlOpacity = () => page.evaluate(() =>
+      getComputedStyle(document.getElementById('centerControls')).opacity);
+    /* 中央はボタンが覆っているので、要素の中心を狙う hover() は使えない。
+       映像の隅 → 10秒戻る → 再生ボタン と、座標でカーソルを動かす */
+    const moveTo = async sel => {
+      const b = await page.locator(sel).boundingBox();
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+      await sleep(600);
+    };
+    await page.mouse.move(120, 220);          // 映像の上（中央から離れた場所）
+    await sleep(600);
+    const onVideo = await ctlOpacity();
+    await moveTo('#back10');
+    const onBack = await ctlOpacity();
+    await moveTo('#centerBtn');
+    const onPlay = await ctlOpacity();
+    check('PC でボタンに乗せても、中央の操作が消えない',
+          onVideo === '1' && onBack === '1' && onPlay === '1',
+          '映像の上 ' + onVideo + ' → 10秒戻るの上 ' + onBack + ' → 再生ボタンの上 ' + onPlay);
+    await ctx.close();
+  }
+
+  /* 29. 音量は配信ごとに持ち、バーは今映している配信のものを編集する。
+         同時再生で実況とチームVCを混ぜるとき、片方だけ下げられること */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    const vols = () => page.evaluate(() => {
+      const o = {};
+      for(const k of ['main','a']) o[k] = window.__FAKE.players['p-'+k].getVolume();
+      return o;
+    });
+    const setBar = v => page.evaluate(val => {
+      const el = document.getElementById('vol');
+      el.value = String(val);
+      el.dispatchEvent(new Event('input', {bubbles:true}));
+    }, v);
+    const barState = () => page.evaluate(() => ({
+      value: parseFloat(document.getElementById('vol').value),
+      label: document.getElementById('volLabel').textContent
+    }));
+
+    // 同時再生にして MAIN と VC-A の両方を鳴らす
+    await page.evaluate(() => document.getElementById('mix').click());
+    await page.evaluate(() => document.querySelector('[data-aud="a"]').click());
+    await sleep(800);
+
+    await setBar(40);                       // 映しているのは MAIN
+    await sleep(800);
+    const v1 = await vols();
+    check('音量バーは、今映している配信だけに効く',
+          Math.abs(v1.main - 40) < 2 && Math.abs(v1.a - 100) < 2,
+          'MAIN ' + v1.main + ' / VC-A ' + v1.a + '（VC-A は 100 のまま）');
+
+    await page.evaluate(() => document.querySelector('[data-vid="a"]').click());
+    await sleep(500);
+    const b1 = await barState();
+    check('映像を切り替えると、バーはその配信の音量に入れ替わる',
+          Math.abs(b1.value - 100) < 2 && /VC-A/.test(b1.label),
+          'バー ' + b1.value + ' / 表示 "' + b1.label + '"');
+
+    await setBar(70);
+    await sleep(800);
+    const v2 = await vols();
+    check('配信ごとの音量が別々に保たれる',
+          Math.abs(v2.main - 40) < 2 && Math.abs(v2.a - 70) < 2,
+          'MAIN ' + v2.main + ' / VC-A ' + v2.a);
+
+    await page.evaluate(() => document.querySelector('[data-vid="main"]').click());
+    await sleep(500);
+    const b2 = await barState();
+    check('映像を戻すと、前に決めた音量がそのまま出る',
+          Math.abs(b2.value - 40) < 2 && /MAIN/.test(b2.label),
+          'バー ' + b2.value + ' / 表示 "' + b2.label + '"');
+    await ctx.close();
+  }
+
+  /* 30. ライブをアーカイブ扱いしないこと。動画が載る前の getVideoData() は
+         中身が揃っておらず、ライブでも isLive:false が返る。その1回を握ると
+         ライブなのに SYNC が出る（実機で出た不具合）。
+         a) video_id が空のまま返る場合  b) IDは載ったが isLive がまだ false */
+  for(const [name, cfg] of [
+    ['メタデータが空のまま返る', { emptyMeta: [MAIN_ID], metaMs: 2500 }],
+    ['isLive がまだ false で返る', { lateLive: [MAIN_ID], metaMs: 1000 }]
+  ]){
+    const { ctx, page } = await session(Object.assign({ keys: ['main','a'] }, cfg));
+    await sleep(2500);                       // メタデータが揃うのを待つ
+    const st = await page.evaluate(() => ({
+      label: document.getElementById('offsetLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden,
+      multi: !document.getElementById('multiScrub').hidden
+    }));
+    check('ライブをアーカイブ扱いしない（' + name + '）',
+          st.label === 'LIVE' && st.posHidden && !st.multi,
+          'ピル "' + st.label + '" / 経過表示 hidden=' + st.posHidden
+            + ' / 動画ごとのバー=' + st.multi);
+    await ctx.close();
+  }
+
+  /* 31. isLive がいつまでも false のままでも、長さが詰め物（3600）なら
+         ライブと分かる。取り違えたときに終端が 60:00 で固定されるのは、
+         ライブの getDuration() が詰め物を返すため */
+  {
+    const { ctx, page } = await session({
+      keys: ['main'], lateLive: [MAIN_ID], metaMs: 999999   // 最後まで嘘のまま
+    });
+    await sleep(3000);
+    const st = await page.evaluate(() => ({
+      label: document.getElementById('offsetLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden
+    }));
+    check('長さが詰め物（3600）のうちは、アーカイブと決めない',
+          st.label === 'LIVE' && st.posHidden,
+          'ピル "' + st.label + '" / 経過表示 hidden=' + st.posHidden);
+    await ctx.close();
+  }
+
+  /* 32. 本当に 60:00 ちょうどの動画（1時間耐久ものなど）は、長さが詰め物と
+         同じ値でもアーカイブと分かること。長さだけで決めると永久にライブ扱いに
+         なってしまう。動画は先頭から始まり、ライブは LIVE端から始まる */
+  {
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID], elapsed: 3600 });
+    await sleep(2000);
+    const st = await page.evaluate(() => ({
+      pos: document.getElementById('posLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden,
+      label: document.getElementById('offsetLabel').textContent
+    }));
+    check('長さがちょうど 60:00 の動画も、アーカイブと分かる',
+          !st.posHidden && /\/ 60:00$/.test(st.pos.trim()),
+          '経過表示 hidden=' + st.posHidden + ' / "' + st.pos + '" / ピル "' + st.label + '"');
+    await ctx.close();
+  }
+
+  /* 33. それでもアーカイブは、少し待てばきちんとアーカイブと判る */
+  {
+    const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
+    await sleep(1500);
+    const st = await page.evaluate(() => ({
+      pos: document.getElementById('posLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden
+    }));
+    check('アーカイブは（慎重に判定しても）アーカイブと判る',
+          !st.posHidden && /\d+:\d\d \/ \d+:\d\d/.test(st.pos),
+          '経過表示 hidden=' + st.posHidden + ' / "' + st.pos + '"');
     await ctx.close();
   }
 

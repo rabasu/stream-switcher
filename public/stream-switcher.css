@@ -112,45 +112,83 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 #setup .ghost{background:transparent;border:1px solid var(--line);color:var(--sub);font-weight:500;}
 #setup .ghost:hover{border-color:var(--sub);color:var(--text);}
 
-/* ===== 動画中央の再生 / 一時停止 =====
-   YouTube などと同じく、映像の中央を押して止める。操作パネル（#shield,
-   z5）より前、操作バー（z20）より後ろに置く。 */
-#centerBtn{
+/* ===== 動画中央の操作（10秒戻る / 再生・一時停止 / 10秒進む）=====
+   YouTube などと同じく、映像の中央を押して止める。左右の 10秒送りは、
+   シークバーでの細かい調整が難しいので並べて置く。出す条件は3つとも同じ。
+   操作パネル（#shield, z5）より前、操作バー（z20）より後ろに置く。 */
+/* 3つまとめて出し入れする。ボタンは #shield の子ではないので、カーソルが
+   ボタンに乗ると #shield の :hover が外れる。1つずつ出していると、その瞬間に
+   隣のボタンが消えてしまう（実際にこの不具合を出している）。入れ物ごと
+   出し入れし、入れ物に乗っているあいだは出しておく。
+   ボタンの隙間を押したときは映像の再生 / 停止に通したいので、入れ物自身は
+   クリックを受けない */
+#centerControls{
   position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;
-  width:68px;height:68px;padding:0;border:none;border-radius:50%;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
+  display:flex;align-items:center;gap:12px;pointer-events:none;
+  transition:opacity .25s;
+}
+.centerCtl{
+  pointer-events:auto;
+  padding:0;border:none;border-radius:50%;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;position:relative;
   color:#fff;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
   box-shadow:0 4px 20px rgba(0,0,0,.45);
-  transition:opacity .25s,background .15s;
+  transition:background .15s;
 }
-#centerBtn:hover{background:rgba(0,0,0,.7);}
-#centerBtn:active{transform:translate(-50%,-50%) scale(.94);}
+#centerBtn{width:68px;height:68px;}
+/* 10秒送り。矢印の輪の中に秒数を置く、動画サイトでよくある形 */
+#back10,#fwd10{width:52px;height:52px;}
+#back10 svg,#fwd10 svg{width:30px;height:30px;}
+.ctlNum{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-42%);
+  font-size:.58rem;font-weight:800;letter-spacing:-.02em;pointer-events:none;
+}
+.centerCtl:hover{background:rgba(0,0,0,.7);}
+.centerCtl:active{transform:scale(.94);}
+/* 全部が巻き戻せないときは押せない（renderRewind が落とす） */
+.centerCtl:disabled{opacity:.25;cursor:default;}
+.centerCtl:disabled:hover{background:rgba(0,0,0,.55);}
 #centerBtn .iconPlay{display:none;}
 body.paused #centerBtn .iconPause{display:none;}
 body.paused #centerBtn .iconPlay{display:block;}
 /* タッチは操作パネルと同時（横画面）か時間経過（縦画面）で隠す */
-body.touch.chrome-hidden #centerBtn,
-body.touch.center-hidden #centerBtn{opacity:0;pointer-events:none;}
+body.touch.chrome-hidden #centerControls,
+body.touch.center-hidden #centerControls{opacity:0;pointer-events:none;}
 
 /* PC はカーソルが動画中央に来たときだけ出す。押しやすいよう円を約2倍にし、
    透明なあいだも受け付けるので、中央に入った瞬間から押せる */
 body:not(.touch) #centerBtn{
-  width:136px;height:136px;opacity:0;
+  width:136px;height:136px;
   background:rgba(0,0,0,.42);box-shadow:0 6px 28px rgba(0,0,0,.4);
 }
+body:not(.touch) #back10,body:not(.touch) #fwd10{
+  width:64px;height:64px;background:rgba(0,0,0,.42);
+}
+body:not(.touch) #centerControls{opacity:0;gap:6px;}
 /* ボタンの上に載せたときだけ出るのでは狭すぎて見つからない。
    カーソルが映像の上にあるあいだは出しておく。#shield は映像の全面を
    覆っていて、上下のメニュー（z-20）やパネルはその上に乗っているので、
    メニューの上へ来ると #shield が :hover でなくなり自然に引っ込む。
    自分で UI を畳んだとき（chrome-hidden）は映像だけ見たいので出さない */
-body:not(.touch):not(.chrome-hidden) #shield:hover ~ #centerBtn{opacity:1;}
+body:not(.touch):not(.chrome-hidden) #shield:hover ~ #centerControls,
+/* ボタンに乗ると #shield の :hover が外れるので、入れ物でも受ける */
+body:not(.touch):not(.chrome-hidden) #centerControls:hover{opacity:1;}
+/* 入れ物は pointer-events:none なので、環境によっては上の :hover が
+   立たない。:has() を別の規則にして受ける（まとめて書くと、:has() の
+   無い環境で規則ごと捨てられる） */
+body:not(.touch):not(.chrome-hidden) #centerControls:has(.centerCtl:hover){opacity:1;}
 /* ボタンに載っているあいだは濃くして、押せることを示す */
-body:not(.touch) #centerBtn:hover{opacity:1;background:rgba(0,0,0,.55);}
+body:not(.touch) .centerCtl:hover{background:rgba(0,0,0,.55);}
 /* 止めているあいだは出しておく。出ていないと、止まっていることも
    戻し方も分からない */
-body:not(.touch).paused #centerBtn{opacity:1;}
+body:not(.touch).paused #centerControls{opacity:1;}
+/* UI を畳んでいるあいだは出さない。透明なまま押せると、映像だけ見ている
+   つもりで 10秒飛んでしまう */
+body.chrome-hidden #centerControls{pointer-events:none;}
 body:not(.touch) #centerBtn svg{width:42px;height:42px;}
-#splash:not(.gone) ~ #centerBtn{display:none;}
+body:not(.touch) #back10 svg,body:not(.touch) #fwd10 svg{width:34px;height:34px;}
+body:not(.touch) .ctlNum{font-size:.66rem;}
+#splash:not(.gone) ~ #centerControls{display:none;}
 
 /* ===== 配信終了の表示 ===== */
 #endedNote{
@@ -507,15 +545,22 @@ body.chrome-hidden #diag{
 #timeline{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;}
 /* 再生 / 一時停止。映像の中央ボタンはカーソルを載せるまで出ないので、
    常に見えるここが主な止め方になる。位置はシークバーの左（YouTube 等と同じ）*/
-#playBtn{
+#playBtn,#groupSeek{
   flex-shrink:0;width:34px;height:34px;padding:0;cursor:pointer;
   border:1px solid var(--line);border-radius:8px;
   background:rgba(255,255,255,.05);color:var(--text);
   display:flex;align-items:center;justify-content:center;transition:.12s;
 }
-#playBtn:hover{border-color:var(--sub);background:rgba(255,255,255,.1);}
+#playBtn:hover,#groupSeek:hover{border-color:var(--sub);background:rgba(255,255,255,.1);}
 /* UA 既定のリングは枠の外にもう一段の箱ができて見えるので当て直す */
-#playBtn:focus-visible{outline:2px solid var(--a);outline-offset:1px;}
+#playBtn:focus-visible,#groupSeek:focus-visible{outline:2px solid var(--a);outline-offset:1px;}
+/* まとめてシーク。シークバーの幅を食わないようアイコンだけ。
+   OFF（今映しているものだけ動かす）は、鎖が切れた絵と色で示す */
+#groupSeek[hidden]{display:none;}
+#groupSeek .iconLinkOff{display:none;}
+#groupSeek[aria-pressed="false"]{color:var(--live);border-color:rgba(229,72,77,.5);}
+#groupSeek[aria-pressed="false"] .iconLink{display:none;}
+#groupSeek[aria-pressed="false"] .iconLinkOff{display:block;}
 #playBtn .iconPlay{display:none;}
 body.paused #playBtn .iconPause{display:none;}
 body.paused #playBtn .iconPlay{display:block;}
@@ -530,6 +575,38 @@ body.paused #playBtn .iconPlay{display:block;}
 #timeline input[type=range]::-moz-range-thumb{
   width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
 }
+/* ===== 動画ごとのシークバー =====
+   ズレを付けているあいだだけ出す。「動画ごとに別の位置で再生している」ことは
+   バーが並んでいる絵がいちばん早く伝わる。連動 ON のあいだはつまみに緑の枠を
+   付け、1本動かすと全部動くことを見せる（鎖アイコンだけでは伝わらない） */
+#multiScrub{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;}
+#multiScrub[hidden]{display:none;}
+.msRow{display:flex;align-items:center;gap:8px;min-width:0;}
+.msRow[hidden]{display:none;}
+.msLabel{
+  flex:0 0 3.2em;font-size:.68rem;font-weight:800;letter-spacing:.02em;
+  color:var(--msColor,var(--sub));
+}
+.msTime{
+  flex-shrink:0;font-size:.68rem;color:var(--sub);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+}
+.msRow input[type=range]{
+  flex:1 1 120px;min-width:60px;-webkit-appearance:none;appearance:none;height:5px;
+  border-radius:3px;background:#2b3340;outline:none;cursor:pointer;
+}
+.msRow input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:#fff;cursor:pointer;box-shadow:0 0 0 3px rgba(0,0,0,.5);
+}
+.msRow input[type=range]::-moz-range-thumb{
+  width:15px;height:15px;border-radius:50%;background:#fff;border:none;cursor:pointer;
+  box-shadow:0 0 0 3px rgba(0,0,0,.5);
+}
+/* 連動中。全部のつまみが緑の枠になり、1本動かすと全部動く */
+#multiScrub.linked input[type=range]::-webkit-slider-thumb{box-shadow:0 0 0 3px var(--ok);}
+#multiScrub.linked input[type=range]::-moz-range-thumb{box-shadow:0 0 0 3px var(--ok);}
+
 /* アーカイブの経過 / 全体。ライブでは出さない（軸が LIVE端からの遅れのため）*/
 #posLabel{
   flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--sub);
@@ -720,7 +797,8 @@ body.paused #playBtn .iconPlay{display:block;}
   body.touch #toggleMore{order:2;}
   body.touch .barGrid > [data-aud]{order:3;}
   body.touch #mix{order:4;}
-  body.touch #timeline{order:5;grid-column:1 / -1;}
+  body.touch #multiScrub{order:5;grid-column:1 / -1;}
+  body.touch #timeline{order:6;grid-column:1 / -1;}
   body.touch .barGrid > [data-aud="main"],
   body.touch .barGrid > [data-aud="a"],
   body.touch .barGrid > [data-aud="b"]{order:3;}
@@ -735,6 +813,14 @@ body.paused #playBtn .iconPlay{display:block;}
   }
   .barGrid > .srcBtn{padding:10px 4px;font-size:.82rem;}
   #timeline{width:100%;}
+  /* シークバーだけを1行目に回して全幅で使う。数時間のアーカイブを指で
+     送るので、幅がそのまま操作精度になる。操作類は2行目に流す */
+  #timeline{flex-wrap:wrap;row-gap:8px;}
+  .msTime{display:none;}          /* 幅はバーに回す。時間は操作行に出ている */
+  .msLabel{flex:0 0 2.8em;}
+  .msRow input[type=range]{height:6px;}
+  #timeline > #scrub{order:-1;flex:1 1 100%;min-width:100%;height:6px;}
+  #timeline > #golive{margin-left:auto;}
   #offsetLabel{min-width:4.4em;font-size:.75rem;}
   #golive{padding:8px 10px;gap:5px;}
   #audioTail > .pill{flex:1 1 40%;padding:9px 8px;}

@@ -117,6 +117,9 @@ window.onYouTubeIframeAPIReady = () => {
   if(pending){ build(pending, pendingSound); pending = null; }
 };
 
+/* 読み込んだ動画ID。getVideoData() が本当にこの動画のものかを照合する */
+const loadedId = {main:null, a:null, b:null};
+
 /* withSound: 読み込むボタン経由。クリック済みでブラウザの自動再生の
    条件を満たしているので、最初から音を出せる。共有URLから開いたときは
    ジェスチャーが無いので、音を止めたまま始めてチップで解除してもらう */
@@ -131,7 +134,9 @@ function build(ids, withSound){
   KEYS.forEach(k => {
     if(players[k]){ players[k].destroy(); players[k] = null; }
     ready[k] = false;
+    loadedId[k] = null;
     if(!ids[k]) return;
+    loadedId[k] = ids[k];         // getVideoData() が本物か照合するために覚える
     const holder = document.getElementById('layer-'+k);
     holder.replaceChildren();
     const host = document.createElement('div');
@@ -157,7 +162,7 @@ function build(ids, withSound){
           scheduleHideChrome();
           showCenter();
           try{ e.target.getIframe().setAttribute('referrerpolicy','strict-origin-when-cross-origin'); }catch(err){}
-          e.target.setVolume(masterVol);
+          e.target.setVolume(vol[k]);
           e.target.mute();
           e.target.playVideo();
           applyAudio(audioKeys, true);
@@ -168,6 +173,8 @@ function build(ids, withSound){
            シークがクランプされた、といった食い違いを画面に出すため */
         onStateChange: ev => {
           stateOf[k] = ev.data;
+          // 再生が始まった位置は、描画のタイマーを待たずにここで採る
+          if(ev.data === ST.PLAYING) noteFirstPos(k);
           renderTransport();
         },
         onError: ev => {
@@ -214,6 +221,7 @@ function setVideo(k){
   if(ecoSuspended) armEcoResume();
   document.querySelectorAll('[data-vid]').forEach(b =>
     b.classList.toggle('on', b.dataset.vid === videoSrc));
+  renderVolume();          // 音量バーは映している配信のものに入れ替わる
 }
 
 /* ================================================================
@@ -296,8 +304,15 @@ function toggleLinkVideo(){
   renderLinkVideo();
 }
 
-/* ---------- 音声 ---------- */
-let masterVol = 100;              // 全体音量 (0-100)
+/* ---------- 音声 ----------
+   音量は配信ごとに持つ。同時再生で実況とチームVCを混ぜるとき、片方だけ
+   小さくしたいことが多いため。バーが編集するのは「今映している配信」の音量。
+   映像を切り替えるとバーもその配信の値に入れ替わる */
+const vol = {main:100, a:100, b:100};
+/* バーが担当する配信。映像を切り替えても、読み込んでいなければ触らない */
+function volKey(){ return players[videoSrc] ? videoSrc : (KEYS.find(k => players[k]) || videoSrc); }
+/* 鳴っている中でいちばん大きい音量。0 なら実質ミュート */
+function audibleVol(){ return audioKeys.reduce((m, k) => Math.max(m, vol[k]), 0); }
 const fades = {};
 /* クエリURL自動起動など、再生開始前の unmute は自動再生を止めるので初回操作まで待つ */
 let audioUnlocked = false;
@@ -353,7 +368,7 @@ const SRC_COLOR = {main:'#3ddc84', a:'#4ea8de', b:'#f2a65a'};
    KEYS の並びに揃えてから配る（表示の順を安定させるため） */
 function applyAudio(keys, instant){
   audioKeys = KEYS.filter(k => players[k] && keys.includes(k));
-  KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? masterVol : 0, instant));
+  KEYS.forEach(k => fadeTo(k, (!muted && audioKeys.includes(k)) ? vol[k] : 0, instant));
 
   // 選択の点灯はミュート中も保つ。「いま音量を戻したら何が鳴るか」を残す
   document.querySelectorAll('[data-aud]').forEach(
@@ -434,7 +449,12 @@ function toggleAudioKey(k){
    触らない。選択を消してしまうと、音量を戻したときに何が鳴るのかが
    画面から読み取れなくなる。
    ================================================================ */
-function isMuted(){ return muted || masterVol === 0 || audioKeys.length === 0; }
+function isMuted(){ return muted || audioKeys.length === 0 || audibleVol() === 0; }
+/* 音量 0 のまま解除しても鳴らない。全部 0 のときだけ戻す */
+function restoreSilentVolumes(){
+  if(audibleVol() > 0) return;
+  (audioKeys.length ? audioKeys : KEYS).forEach(k => { vol[k] = 100; });
+}
 function muteAll(){
   muted = true;
   applyAudio(audioKeys);          // 選択はそのまま。音量だけ落とす
@@ -443,7 +463,7 @@ function unmute(){
   audioUnlocked = true;
   muted = false;
   pendingUnmute = false;
-  if(masterVol === 0) setVolume(100);
+  restoreSilentVolumes();
   // まだ何も選んでいなければ（起動直後に選択ボタンで外された等）、
   // 読み込んでいる先頭を鳴らす
   if(!audioKeys.length){
@@ -468,19 +488,27 @@ function unlockPendingUnmute(){
   if(!pendingUnmute) return false;
   muted = false;
   pendingUnmute = false;
-  if(masterVol === 0) setVolume(100);
+  restoreSilentVolumes();
   return true;
 }
 
-/* バーとスピーカーの見た目。ミュート中はバーを最小で描く（masterVol は保持） */
+/* バーとスピーカーの見た目。バーは「今映している配信」の音量を出す。
+   ミュート中は最小で描く（vol は保持） */
 function renderVolume(){
-  const shown = (muted || audioKeys.length === 0) ? 0 : masterVol;
+  const k = volKey();
+  const shown = (muted || audioKeys.length === 0) ? 0 : vol[k];
   const el = document.getElementById('vol');
   if(el.value != shown) el.value = shown;
+  // どの配信の音量を触っているかが分かるよう、バーはその配信の色で塗る
+  const color = SRC_COLOR[k];
   el.style.background =
-    'linear-gradient(to right, var(--a) 0%, var(--a) ' + shown + '%, #2b3340 ' + shown + '%, #2b3340 100%)';
+    'linear-gradient(to right, ' + color + ' 0%, ' + color + ' ' + shown + '%, #2b3340 '
+    + shown + '%, #2b3340 100%)';
+  el.title = SRC_LABEL[k] + ' の音量';
+  el.setAttribute('aria-label', SRC_LABEL[k] + ' の音量');
   const lab = document.getElementById('volLabel');
-  lab.textContent = shown;
+  // 2本以上あるときは、どれの音量かを添える（1本なら迷わないので数字だけ）
+  lab.textContent = loadedCount() > 1 ? SRC_LABEL[k] + ' ' + shown : String(shown);
   lab.classList.toggle('muted', shown === 0);
 
   const btn = document.getElementById('volMute');
@@ -597,18 +625,19 @@ function swapVc(){
   applyAudio(keys);
 }
 
-/* 全体音量。鳴っているプレーヤーにのみ即時反映する */
+/* 今映している配信の音量。鳴っていれば即時反映する。鳴っていない配信でも
+   値は覚えておき、その配信を鳴らしたときにその音量で出す */
 function setVolume(v, silent){
-  masterVol = Math.max(0, Math.min(100, Math.round(v)));
-  KEYS.forEach(k => {
-    const p = players[k];
-    if(!p || !ready[k] || !audioKeys.includes(k)) return;
+  const k = volKey();
+  vol[k] = Math.max(0, Math.min(100, Math.round(v)));
+  const p = players[k];
+  if(p && ready[k] && audioKeys.includes(k)){
     clearInterval(fades[k]);
     try{
-      p.setVolume(masterVol);
-      (masterVol > 0 && !muted && canUnmute()) ? p.unMute() : p.mute();
+      p.setVolume(vol[k]);
+      (vol[k] > 0 && !muted && canUnmute()) ? p.unMute() : p.mute();
     }catch(e){}
-  });
+  }
   renderNowAudio();
   renderVolume();
 }
@@ -643,6 +672,11 @@ function setVolume(v, silent){
    終わったことだけを映像の上に出す（renderEndedNote）。次に読み込めば
    アーカイブとして開ける。
 
+   原則0: 状態は文字ではなく絵で見せる。ズレを付けて見ているあいだは、
+   動画ごとのシークバーを並べて出す。「別々の位置で再生している」ことも、
+   連動 ON で「1本動かすと全部動く」ことも、つまみの並びと緑の枠で伝わる。
+   揃っていれば（＝ズレを付けていなければ）バーは1本に畳む。
+
    原則5: アーカイブの同時視聴は「共通の遅れ」では揃わない。動画ごとに
    開始時刻も長さも違うので、LIVE端からの遅れという共通軸が意味を持たない。
    そこでアーカイブでは、見ている動画の絶対位置でシークし、他の動画は
@@ -661,6 +695,11 @@ const LIVE_OVERSHOOT = 86400;  // LIVE へ戻すときに指す「LIVE端のは�
 
 let targetOffset = 0;          // 巻き戻せる配信に要求している遅れ秒数。実測で補正される
 let groupSeek = true;          // シークを全部に効かせるか（OFF = 見ているものだけ）
+/* 意図的にズレを付けたか。付けているあいだは動画ごとのシークバーを出す。
+   SYNC で揃え直すと下りる。実測のズレで判定すると、再生中のわずかな差で
+   表示が出たり消えたりするので、操作の意図で持つ */
+let offsetIntent = false;
+let msDragKey = null;          // 動画ごとのバーを掴んでいるあいだ、その配信
 let paused = false;
 let scrubbing = false;
 let settleUntil = 0;
@@ -673,6 +712,31 @@ const stateOf = {main:ST.UNSTARTED, a:ST.UNSTARTED, b:ST.UNSTARTED};
 const canRewind = {main:null, a:null, b:null};
 /* 配信中か。false = アーカイブ / null = まだ分からない */
 const isLiveNow = {main:null, a:null, b:null};
+const vdSeen = {main:0, a:0, b:0};     // アーカイブと読めた最初の時刻(ms)
+const vdRaw = {main:null, a:null, b:null};  // 診断パネル用の生の値
+const ARCHIVE_CONFIRM_MS = 1500;       // アーカイブと決めるまで読みを保つ時間
+const LIVE_PAD = 3600;                 // ライブの getDuration() が返す詰め物の値
+const HEAD_EPS = 15;                   // これ以内から始まったら「頭から」とみなす(秒)
+/* 再生が始まった位置。頭（0付近）からなら動画、LIVE端からならライブ。
+   null = まだ採れていない。0 も意味のある値なので null と区別する。
+   採るのは早いほどよい。裏のタブではタイマーが間引かれて描画が遅れるため、
+   タイマー任せにすると動画でも「ずっと先から始まった」ように見えてしまう。
+   プレーヤーの状態変化（再生開始）でも採る */
+const firstPos = {main:null, a:null, b:null};
+function noteFirstPos(k){
+  if(firstPos[k] !== null) return;
+  const cur = playerTime(k);
+  // 再生が始まるまで getCurrentTime() は 0 を返す。その 0 を「頭から始まった」と
+  // 読むと、ライブを動画と取り違える。最初の正の値を採る
+  if(cur !== null && cur > 0) firstPos[k] = cur;
+}
+/* ライブは長さが決まらないので、getDuration() がきっちり 3600 の詰め物を返す
+   （原則1）。取り違えたときに終端が 60:00 で固定されるのはこれ。
+
+   ただし長さが 3600 なだけでライブと決めてはいけない。本当に 60:00 ちょうどの
+   動画（1時間耐久ものなど）を永久にライブ扱いしてしまう。始まった位置で分ける:
+   動画は先頭から始まり、ライブは LIVE端（配信開始からの経過）から始まる。 */
+function paddedLive(k, d){ return d === LIVE_PAD && firstPos[k] !== null && firstPos[k] > HEAD_EPS; }
 /* 「配信は終了しました」を消したか（配信ごと）。シークバーに触れたら消す */
 const endedNoteOff = {main:false, a:false, b:false};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
@@ -683,6 +747,8 @@ const edgeWall = {main:0, a:0, b:0};   // performance.now() の ms。0 = 未取�
 
 function resetTransport(){
   targetOffset = 0;
+  offsetIntent = false;
+  msDragKey = null;
   paused = false;
   scrubbing = false;
   settleUntil = 0;
@@ -695,6 +761,9 @@ function resetTransport(){
     stateOf[k] = ST.UNSTARTED;
     canRewind[k] = null;
     isLiveNow[k] = null;
+    vdSeen[k] = 0;
+    vdRaw[k] = null;
+    firstPos[k] = null;
     endedNoteOff[k] = false;
     edgeBase[k] = 0;
     edgeWall[k] = 0;
@@ -708,20 +777,54 @@ function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
 
 /* 読み込んだものがライブかアーカイブか、巻き戻せるかを読む。公式 API には
    無いが、getVideoData() の isLive / allowLiveDvr で分かる（実機で確認済み）。
-   読み込み直後はまだ読めないので、読めるまで呼ぶたびに試す。読めない環境では
-   null のまま */
+   読めるまで呼ぶたびに試し、読めたら確定する。読めない環境では null のまま。
+
+   ここを一度読めた値で即決めると、ライブをアーカイブ扱いしてしまう。
+   動画が載る前の getVideoData() は中身が揃っておらず、ライブでも
+   isLive:false が返る（実機で、ライブなのに SYNC が出る形で発覚）。
+   取り違えの影響はアーカイブ側に倒したときのほうが大きい（シークの軸も
+   表示も全部変わる）ので、アーカイブと決めるときだけ手順を踏む:
+     - 読み込んだ動画IDと getVideoData() の video_id が一致すること
+     - 再生位置が入っていること（再生が始まる前の値は当てにならない）
+     - 再生位置が終端を超えていないこと（超える = パディングされたライブ）
+     - 長さが詰め物（ちょうど 3600）で、かつ先頭から始まっていないのでない
+       こと。ライブは長さが決まらないので getDuration() が詰め物を返し、
+       取り違えると終端が 60:00 で固定される。ただし長さだけで決めると、
+       本当に 60:00 の動画を永久にライブ扱いするので始まった位置も見る
+     - 同じ読みが ARCHIVE_CONFIRM_MS 続くこと
+   ライブ（isLive:true）は取り違えても軽いので、読めた時点で決めてよい */
 function probeVideoData(k){
-  if(canRewind[k] !== null) return;          // 読めたら確定。読み直さない
   const p = players[k];
   if(!p || !ready[k] || typeof p.getVideoData !== 'function') return;
-  try{
-    const vd = p.getVideoData();
-    if(!vd || typeof vd.isLive !== 'boolean') return;
-    isLiveNow[k] = vd.isLive;
-    // アーカイブは普通の動画なので自由にシークできる。
-    // ライブは配信者の DVR 設定次第
-    canRewind[k] = vd.isLive ? vd.allowLiveDvr !== false : true;
-  }catch(e){}
+  const cur = playerTime(k);
+  const end = archiveEnd(k);
+  // アーカイブと決めたのに再生位置が終端を超えた。アーカイブではありえないので
+  // 読み違い。決め直させる（ライブの getDuration() はパディングされる）
+  if(isLiveNow[k] === false && (paddedLive(k, end)
+      || (cur !== null && end > 0 && cur > end + 1))){
+    isLiveNow[k] = null; canRewind[k] = null; vdSeen[k] = 0;
+  }
+  if(canRewind[k] !== null) return;          // 決まっていれば読み直さない
+  if(cur === null || cur <= 0) return;       // まだ再生が始まっていない
+  noteFirstPos(k);                           // 始まった位置。頭からか LIVE端か
+  let vd = null;
+  try{ vd = p.getVideoData(); }catch(e){ return; }
+  if(!vd || typeof vd.isLive !== 'boolean') return;
+  vdRaw[k] = vd;
+  // 別の動画の（または空の）メタデータ。この動画のものが載るまで待つ
+  if(loadedId[k] && vd.video_id && vd.video_id !== loadedId[k]) return;
+  if(vd.isLive){
+    isLiveNow[k] = true;
+    canRewind[k] = vd.allowLiveDvr !== false;   // 配信者の DVR 設定次第
+    return;
+  }
+  if(end > 0 && cur > end + 1) return;        // 終端を超えている = ライブ
+  if(paddedLive(k, end)) return;              // 長さが詰め物で、頭からでもない
+  const now = performance.now();
+  if(!vdSeen[k]){ vdSeen[k] = now; return; }  // 一度きりの読みでは決めない
+  if(now - vdSeen[k] < ARCHIVE_CONFIRM_MS) return;
+  isLiveNow[k] = false;
+  canRewind[k] = true;                        // アーカイブは自由にシークできる
 }
 function readRewind(k){ probeVideoData(k); return canRewind[k]; }
 /* 配信中ではない = アーカイブ（普通の動画）か */
@@ -824,20 +927,25 @@ function seekKeys(){
 /* 見ている動画を pos（動画の先頭からの秒数）へ動かす。他の動画は、いまの
    ズレを保ったまま同じ量だけずらす。開始時刻が違う動画どうしでも、一度
    頭出しすれば以後は揃ったまま動かせる */
-function seekArchiveTo(pos){
-  const cur = playerTime(videoSrc);
+function seekArchiveTo(pos, base){
+  const key = base || videoSrc;
+  const cur = playerTime(key);
   if(cur === null) return false;
   transportSeq++;
   const delta = pos - cur;
+  // まとめてシークが OFF なら、動かすのは掴んだ1本だけ
+  const targets = groupSeek ? KEYS.filter(seekable) : [key];
+  if(!groupSeek) offsetIntent = true;          // ズレを付けにいっている
   let ok = false;
-  seekKeys().forEach(k => {
-    const c = k === videoSrc ? cur : playerTime(k);
+  targets.forEach(k => {
+    const c = k === key ? cur : playerTime(k);
     if(c === null) return;
     try{ players[k].seekTo(Math.max(0, c + delta), true); ok = true; }catch(e){}
   });
   // 表示の軸（終端からの遅れ）も、動かした先に合わせておく
   const end = liveEdge(videoSrc);
-  if(end > 0) targetOffset = Math.max(0, end - pos);
+  const shown = key === videoSrc ? pos : playerTime(videoSrc);
+  if(end > 0 && shown !== null) targetOffset = Math.max(0, end - shown);
   if(ok) markCommand();
   return ok;
 }
@@ -847,6 +955,7 @@ function syncToShown(){
   const base = playerTime(videoSrc);
   if(base === null) return;
   transportSeq++;
+  offsetIntent = false;            // 揃えた。動画ごとのバーは畳んでよい
   KEYS.forEach(k => {
     if(k === videoSrc || !seekable(k)) return;
     try{ players[k].seekTo(Math.max(0, base), true); }catch(e){}
@@ -884,6 +993,7 @@ function seekAll(){
    動かすので、推定がずれていても要求どおりの量だけ確実に動く */
 function seekRelative(delta){
   transportSeq++;
+  if(!groupSeek) offsetIntent = true;
   let ok = false;
   seekKeys().forEach(k => {
     const p = players[k];
@@ -978,6 +1088,7 @@ function syncPlayerToLive(k){
   const tick = () => {
     const p = players[k];
     if(!p || !ready[k]) return;
+    noteFirstPos(k);        // 読み込み直後のここが、位置を採れるいちばん早い経路
     if(isArchive(k)){ try{ p.playVideo(); }catch(e){} renderTransport(); return; }
     // ライブかアーカイブかが読めるまでは、共通軸に合わせない（読めない
     // うちに合わせると、アーカイブを無関係な位置から始めてしまう）
@@ -1068,6 +1179,7 @@ function adjustTrim(k, d){
   document.getElementById('tr-'+k).textContent = trim[k].toFixed(1);
   if(isArchive(k)){
     // アーカイブは共通軸を通さず、その場から要求どおりの量だけ動かす
+    offsetIntent = true;
     const cur = playerTime(k);
     if(cur !== null){ try{ players[k].seekTo(Math.max(0, cur + d), true); markCommand(); }catch(e){} }
   } else if(seekPlayer(k)) markCommand();
@@ -1121,26 +1233,60 @@ function reconcileTransport(){
   if(!paused && m < LIVE_EPS){ targetOffset = 0; return; }
   if(Math.abs(m - targetOffset) > OFFSET_SNAP) targetOffset = m;
 }
-/* まとめてシーク。2本以上読み込んでいないと意味が無いので、そのときは落とす */
+/* 動画ごとのシークバーを出すか。アーカイブだけを2本以上読み込んでいて、
+   かつズレを付けている（付けにいっている）あいだだけ出す */
+function multiMode(){
+  const loaded = KEYS.filter(k => players[k] && ready[k]);
+  if(loaded.length < 2 || !loaded.every(isArchive)) return false;
+  return !groupSeek || offsetIntent;
+}
+/* 動画ごとのシークバー。掴んでいるバーだけは描き換えない（指が滑るため） */
+function renderMultiScrub(){
+  const wrap = document.getElementById('multiScrub');
+  if(!wrap) return;
+  const on = multiMode();
+  wrap.hidden = !on;
+  wrap.classList.toggle('linked', groupSeek);
+  document.getElementById('scrub').hidden = on;   // 並べるあいだは共通のバーを引っ込める
+  if(!on) return;
+  wrap.querySelectorAll('.msRow').forEach(row => {
+    const k = row.dataset.ms;
+    const has = !!players[k] && ready[k];
+    row.hidden = !has;
+    if(!has) return;
+    row.style.setProperty('--msColor', SRC_COLOR[k]);
+    const bar = row.querySelector('input');
+    const end = liveEdge(k);
+    const cur = playerTime(k);
+    if(k !== msDragKey && end > 0 && cur !== null){
+      bar.max = Math.round(Math.max(60, end));
+      bar.value = Math.round(Math.max(0, Math.min(cur, end)));
+    }
+    const pct = bar.max > 0 ? (bar.value / bar.max) * 100 : 0;
+    bar.style.background = 'linear-gradient(to right, ' + SRC_COLOR[k] + ' 0%, ' + SRC_COLOR[k]
+      + ' ' + pct + '%, #2b3340 ' + pct + '%, #2b3340 100%)';
+    row.querySelector('.msTime').textContent =
+      end > 0 ? fmt(parseFloat(bar.value)) + ' / ' + fmt(end) : '';
+  });
+}
+/* まとめてシーク。1本だけなら意味が無いので、場所を取らずに消す
+   （シークバーの幅をできるだけ残す） */
 function renderGroupSeek(){
   const b = document.getElementById('groupSeek');
   if(!b) return;
-  const many = KEYS.filter(k => players[k]).length > 1;
-  b.disabled = !many;
-  b.setAttribute('aria-checked', String(groupSeek));
-  b.title = !many
-    ? '配信 / 動画を2本以上読み込むと使えます'
-    : groupSeek
-      ? 'まとめてシーク ON — シークは全部に効きます（ズレは保ったまま）'
-      : 'まとめてシーク OFF — シークは今映しているものだけに効きます。'
-        + '開始時刻が違う動画の頭出しに使います';
+  b.hidden = KEYS.filter(k => players[k]).length < 2;
+  b.setAttribute('aria-pressed', String(groupSeek));
+  b.title = groupSeek
+    ? 'まとめてシーク ON'
+    : 'まとめてシーク OFF';
 }
 function toggleGroupSeek(){
   groupSeek = !groupSeek;
   renderGroupSeek();
+  renderTransport();          // 動画ごとのバーの出し入れを、押した瞬間に見せる
   setStatusLine(groupSeek
-    ? 'まとめてシーク ON。シークは全部に効きます'
-    : 'まとめてシーク OFF。シークは今映しているものだけに効きます');
+    ? 'まとめてシーク ON'
+    : 'まとめてシーク OFF');
 }
 /* 配信が終わったことを映像の上に出す。巻き戻せるかどうかとは関係なく出す。
    巻き戻し始めたら（シークバーに触れたら）邪魔なので消す。
@@ -1163,7 +1309,7 @@ function renderRewind(scrub){
   scrub.title = !any
     ? (blocked.length ? noRewindMessage(blocked) : '')
     : (!seekable(videoSrc) && players[videoSrc])
-      ? SRC_LABEL[videoSrc] + ' は配信者が巻き戻しを無効にしています。シークは ' + others + ' にだけ効きます'
+      ? SRC_LABEL[videoSrc] + ' 巻き戻しできない配信です'
       : '';
 }
 
@@ -1184,6 +1330,7 @@ function renderTransport(){
     'linear-gradient(to right, var(--a) 0%, var(--a) ' + pct + '%, #2b3340 ' + pct + '%, #2b3340 100%)';
 
   renderGroupSeek();
+  renderMultiScrub();
   const label = document.getElementById('offsetLabel');
   const btn = document.getElementById('golive');
   const posEl = document.getElementById('posLabel');
@@ -1253,6 +1400,7 @@ function renderDiag(){
     '要求段階    ', em, '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
+    '音量        ' + KEYS.filter(k => players[k]).map(k => SRC_LABEL[k] + ' ' + vol[k]).join(' / ') + '\n',
     '音声        ' + (audioKeys.join(' + ') || '選択なし')
                     + (muted ? '（ミュート）' : '')
                     + (mixMode ? '（同時再生 ON）' : '') + '\n',
@@ -1262,7 +1410,16 @@ function renderDiag(){
                       const r = readRewind(k);
                       return SRC_LABEL[k] + (r === false ? ' 不可' : r === true ? ' 可' : ' ?')
                              + (isArchive(k) ? '(アーカイブ)' : '');
-                    }).join(' / ') || '—')
+                    }).join(' / ') || '—') + '\n',
+    // 判定の材料そのもの。実機で取り違えが起きたときに確かめられるように出す
+    '判定材料    ' + (KEYS.filter(k => players[k]).map(k => {
+                      const vd = vdRaw[k] || {};
+                      const cur = playerTime(k), end = archiveEnd(k);
+                      return SRC_LABEL[k] + ' isLive=' + vd.isLive + ' dvr=' + vd.allowLiveDvr
+                             + ' 位置=' + (cur === null ? '-' : Math.round(cur))
+                             + ' 開始=' + (firstPos[k] === null ? '-' : Math.round(firstPos[k]))
+                             + ' 長さ=' + Math.round(end);
+                    }).join('\n            ') || '—')
   );
 }
 function toggleDiag(){
@@ -1610,7 +1767,15 @@ document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click',
 document.querySelectorAll('[data-aud]').forEach(
   b => b.addEventListener('click', () => toggleAudioKey(b.dataset.aud)));
 document.getElementById('mix').addEventListener('click', toggleMix);
-document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => seekRelative(parseFloat(b.dataset.seek))));
+document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click', () => {
+  // 映像の上のボタンは、隠れている操作を出したタップでは押さない（中央の
+  // 再生ボタンと同じ扱い）。押せたときは、続けて押せるよう表示を延長する
+  if(b.classList.contains('centerCtl')){
+    if(swallowCenterClick) return;
+    showCenter();
+  }
+  seekRelative(parseFloat(b.dataset.seek));
+}));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
 
@@ -1630,6 +1795,19 @@ setVolume(100);
 renderEco();
 renderLinkVideo();
 renderAvailability();
+
+/* 動画ごとのシークバー。掴んだ1本を動かし、連動 ON なら残りも同じだけ動く */
+document.querySelectorAll('#multiScrub .msRow').forEach(row => {
+  const k = row.dataset.ms;
+  const bar = row.querySelector('input');
+  bar.addEventListener('input', () => { msDragKey = k; renderMultiScrub(); });
+  bar.addEventListener('change', () => {
+    msDragKey = null;
+    seekArchiveTo(parseFloat(bar.value), k);
+    scheduleSeekVerify();
+    renderTransport();
+  });
+});
 
 const scrubEl = document.getElementById('scrub');
 /* 巻き戻しを始めたら「配信は終了しました」は用済み。つまみを掴んだ時点で消す */
@@ -1660,8 +1838,8 @@ window.addEventListener('keydown', e => {
   if(e.code === 'Space'){ e.preventDefault(); swapVc(); return; }
   if(e.key === 'ArrowLeft'){ e.preventDefault(); seekRelative(e.shiftKey ? 30 : 10); return; }
   if(e.key === 'ArrowRight'){ e.preventDefault(); seekRelative(e.shiftKey ? -30 : -10); return; }
-  if(e.key === 'ArrowUp'){ e.preventDefault(); setVolume(masterVol + (e.shiftKey ? 1 : 5)); return; }
-  if(e.key === 'ArrowDown'){ e.preventDefault(); setVolume(masterVol - (e.shiftKey ? 1 : 5)); return; }
+  if(e.key === 'ArrowUp'){ e.preventDefault(); setVolume(vol[volKey()] + (e.shiftKey ? 1 : 5)); return; }
+  if(e.key === 'ArrowDown'){ e.preventDefault(); setVolume(vol[volKey()] - (e.shiftKey ? 1 : 5)); return; }
 
   const map = {
     '1':()=>setVideo('main'), '2':()=>setVideo('a'), '3':()=>setVideo('b'),
