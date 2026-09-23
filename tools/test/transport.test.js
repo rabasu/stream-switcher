@@ -855,7 +855,25 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
-  /* 31. それでもアーカイブは、少し待てばきちんとアーカイブと判る */
+  /* 31. isLive がいつまでも false のままでも、長さが詰め物（3600）なら
+         ライブと分かる。取り違えたときに終端が 60:00 で固定されるのは、
+         ライブの getDuration() が詰め物を返すため */
+  {
+    const { ctx, page } = await session({
+      keys: ['main'], lateLive: [MAIN_ID], metaMs: 999999   // 最後まで嘘のまま
+    });
+    await sleep(3000);
+    const st = await page.evaluate(() => ({
+      label: document.getElementById('offsetLabel').textContent,
+      posHidden: document.getElementById('posLabel').hidden
+    }));
+    check('長さが詰め物（3600）のうちは、アーカイブと決めない',
+          st.label === 'LIVE' && st.posHidden,
+          'ピル "' + st.label + '" / 経過表示 hidden=' + st.posHidden);
+    await ctx.close();
+  }
+
+  /* 32. それでもアーカイブは、少し待てばきちんとアーカイブと判る */
   {
     const { ctx, page } = await session({ keys: ['main'], archive: [MAIN_ID] });
     await sleep(1500);

@@ -713,6 +713,11 @@ const isLiveNow = {main:null, a:null, b:null};
 const vdSeen = {main:0, a:0, b:0};     // アーカイブと読めた最初の時刻(ms)
 const vdRaw = {main:null, a:null, b:null};  // 診断パネル用の生の値
 const ARCHIVE_CONFIRM_MS = 1500;       // アーカイブと決めるまで読みを保つ時間
+const LIVE_PAD = 3600;                 // ライブの getDuration() が返す詰め物の値
+/* ライブは長さが決まらないので、getDuration() がきっちり 3600 のような詰め物を
+   返す（原則1）。アーカイブの長さは端数を持つのが普通なので、ちょうど 3600 は
+   ライブの疑いが濃い。取り違えたときに終端が 60:00 で固定されるのはこれ */
+function paddedDuration(d){ return d === LIVE_PAD; }
 /* 「配信は終了しました」を消したか（配信ごと）。シークバーに触れたら消す */
 const endedNoteOff = {main:false, a:false, b:false};
 /* LIVE端の推定。配信ごとに「ある実時刻に、共通軸のどこが LIVE端だったか」を
@@ -762,6 +767,8 @@ function anyState(s){ return KEYS.some(k => ready[k] && stateOf[k] === s); }
      - 読み込んだ動画IDと getVideoData() の video_id が一致すること
      - 再生位置が入っていること（再生が始まる前の値は当てにならない）
      - 再生位置が終端を超えていないこと（超える = パディングされたライブ）
+     - 長さが詰め物（ちょうど 3600）でないこと。ライブは長さが決まらないので
+       getDuration() が詰め物を返す。取り違えると終端が 60:00 で固定される
      - 同じ読みが ARCHIVE_CONFIRM_MS 続くこと
    ライブ（isLive:true）は取り違えても軽いので、読めた時点で決めてよい */
 function probeVideoData(k){
@@ -771,7 +778,8 @@ function probeVideoData(k){
   const end = archiveEnd(k);
   // アーカイブと決めたのに再生位置が終端を超えた。アーカイブではありえないので
   // 読み違い。決め直させる（ライブの getDuration() はパディングされる）
-  if(isLiveNow[k] === false && cur !== null && end > 0 && cur > end + 1){
+  if(isLiveNow[k] === false && (paddedDuration(end)
+      || (cur !== null && end > 0 && cur > end + 1))){
     isLiveNow[k] = null; canRewind[k] = null; vdSeen[k] = 0;
   }
   if(canRewind[k] !== null) return;          // 決まっていれば読み直さない
@@ -788,6 +796,7 @@ function probeVideoData(k){
     return;
   }
   if(end > 0 && cur > end + 1) return;        // 終端を超えている = ライブ
+  if(paddedDuration(end)) return;             // 長さが詰め物のまま = ライブ
   const now = performance.now();
   if(!vdSeen[k]){ vdSeen[k] = now; return; }  // 一度きりの読みでは決めない
   if(now - vdSeen[k] < ARCHIVE_CONFIRM_MS) return;
