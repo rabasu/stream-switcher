@@ -12,7 +12,7 @@
   --bg:#07090c; --panel:#12161d; --line:#232a35;
   --text:#e8ecf2; --sub:#7d8798;
   /* MAIN の識別色。以前は灰色（#8b9aa8）で、選択中でも disabled に
-     見えてしまっていた。--ok（同時再生・省帯域などの汎用の「on」色）
+     見えてしまっていた。--ok（マルチ音声・省帯域などの汎用の「on」色）
      とは色相・彩度をずらし、A・B と並んでも別の配信だと分かるように
      はっきりした緑にする */
   --a:#4ea8de; --b:#f2a65a; --main:#3ddc84; --live:#e5484d; --ok:#7bc47f;
@@ -407,7 +407,7 @@ body.chrome-hidden #diag{
 .pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
 /* ===== モードのスイッチ =====
-   「同時再生」と「Space の切替対象」の2つ。どちらも他のボタンの
+   「マルチ音声」と「Space の切替対象」の2つ。どちらも他のボタンの
    挙動そのものを変える設定で、音源や操作そのものではない。ピルに
    すると隣の MAIN / VC-A / VC-B と並列に見えて役割を取り違えるので、
    枠も塗りも持たない小さなスイッチにして、押すものと区別する。
@@ -784,12 +784,12 @@ body.paused #playBtn .iconPlay{display:block;}
   /* タッチはさらに詰めて 3 行にする。右端に細い列を足し、
      .barTail を display:contents で解いて中身を直接グリッドへ置く。
        1行目  映像 | MAIN | VC-A | VC-B | その他
-       2行目  音声 | MAIN | VC-A | VC-B | 同時再生
+       2行目  音声 | MAIN | VC-A | VC-B | マルチ音声
        3行目  タイムライン（全幅）
      音声行の右端は以前ミュートだったが、スマホは端末の音量ボタンで
      足りる。実況とチームVCのように複数を混ぜて聴きたい場面のほうが
-     多いので、同時再生のスイッチを置く。
-     列幅は「同時再生」の4文字が1行で入るぶんだけ広げる */
+     多いので、マルチ音声のスイッチを置く。
+     列幅は「マルチ音声」の5文字が1行で入るぶんだけ広げる */
   body.touch .barGrid{grid-template-columns:1.9em repeat(3,minmax(0,1fr)) 3.9em;}
   body.touch .barTail{display:contents;}
   body.touch .barGrid > .barLabel,

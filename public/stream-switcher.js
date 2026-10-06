@@ -4,7 +4,7 @@ const players = {};
 let ready = {main:false, a:false, b:false};
 let videoSrc = 'main';
 /* 鳴らしている配信。KEYS の並びで持つ。空 = ミュート。
-   同時再生モードでは最大3本まで入る */
+   マルチ音声モードでは最大3本まで入る */
 let audioKeys = [];
 /* ミュート（音量0）。鳴らす配信の選択とは独立させる。選択を空にして
    しまうと、音量を戻したとき何が鳴るのかが画面から分からなくなる */
@@ -12,7 +12,7 @@ var muted = false;
 /* 共有URLから開いたときの「ジェスチャーが無く鳴らせない」状態。
    ミュート解除チップを出すかどうかの判定に使う。unmute() で消える */
 var pendingUnmute = false;
-var mixMode = false;              // 同時再生（複数を混ぜる）モード
+var mixMode = false;              // マルチ音声（複数を混ぜる）モード
 var linkVideo = true;             // Space で音声と一緒に映像も切り替えるか
 var diagOn = false;
 
@@ -305,7 +305,7 @@ function toggleLinkVideo(){
 }
 
 /* ---------- 音声 ----------
-   音量は配信ごとに持つ。同時再生で実況とチームVCを混ぜるとき、片方だけ
+   音量は配信ごとに持つ。マルチ音声で実況とチームVCを混ぜるとき、片方だけ
    小さくしたいことが多いため。バーが編集するのは「今映している配信」の音量。
    映像を切り替えるとバーもその配信の値に入れ替わる */
 const vol = {main:100, a:100, b:100};
@@ -353,7 +353,7 @@ function renderAvailability(){
   document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !players[b.dataset.aud]);
   // ズレ微調整も、無い配信の分は動かしても意味がない
   renderTrim();                   // ズレ微調整は「進める余地」でも押せるかが変わる
-  // 同時再生は混ぜる相手が要る
+  // マルチ音声は混ぜる相手が要る
   document.getElementById('mix').disabled = loadedCount() < 2;
   if(loadedCount() < 2 && mixMode) mixMode = false;
   renderMix();
@@ -404,7 +404,7 @@ function renderNowAudio(){
 }
 
 /* ================================================================
-   同時再生
+   マルチ音声
    実況と自チームの VC のように、2本以上を混ぜて聴きたいことがある。
    モードを ON にすると、音声ボタン（と Q/W/E）が「切り替え」から
    「足し引き」に変わる。最大3本。
@@ -417,8 +417,8 @@ function renderMix(){
   const btn = document.getElementById('mix');
   btn.setAttribute('aria-checked', mixMode ? 'true' : 'false');
   btn.title = mixMode
-    ? '同時再生 ON — 音声ボタンで足し引きします（最大3本）(R)'
-    : '同時再生 OFF — 音声ボタンは1本に切り替えます (R)';
+    ? 'マルチ音声 ON — 音声ボタンで足し引きします（最大3本）(R)'
+    : 'マルチ音声 OFF (R)';
 }
 function toggleMix(){
   if(loadedCount() < 2) return;
@@ -602,7 +602,7 @@ function onSwapMenuKeydown(e){
 }
 
 /* Space: 選んだ2本を交互に。組の外（MAIN やミュート）からは1本目に入る。
-   同時再生中は、組のうち鳴っているほうだけを入れ替え、他は鳴らしたまま
+   マルチ音声中は、組のうち鳴っているほうだけを入れ替え、他は鳴らしたまま
    にする（MAIN を流しながら VC だけ行き来する使い方のため）。
    Space連動が ON なら映像も同じ配信へ動かす */
 function swapVc(){
@@ -610,7 +610,7 @@ function swapVc(){
   const pair = currentPair();
   if(!pair) return;
   const from = pair.keys.find(k => audioKeys.includes(k)) || null;
-  // 組の両方が鳴っている（同時再生中）。入れ替える先がないので何もしない
+  // 組の両方が鳴っている（マルチ音声中）。入れ替える先がないので何もしない
   if(pair.keys.every(k => audioKeys.includes(k))) return;
   audioUnlocked = true;
   unlockPendingUnmute();
@@ -1403,7 +1403,7 @@ function renderDiag(){
     '音量        ' + KEYS.filter(k => players[k]).map(k => SRC_LABEL[k] + ' ' + vol[k]).join(' / ') + '\n',
     '音声        ' + (audioKeys.join(' + ') || '選択なし')
                     + (muted ? '（ミュート）' : '')
-                    + (mixMode ? '（同時再生 ON）' : '') + '\n',
+                    + (mixMode ? '（マルチ音声 ON）' : '') + '\n',
     'Space       ' + (currentPair() ? currentPair().short : '—')
                     + ' / ' + (linkVideo ? '音声+映像' : '音声のみ') + '\n',
     '巻き戻し    ' + (KEYS.filter(k => players[k]).map(k => {
