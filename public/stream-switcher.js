@@ -418,7 +418,7 @@ function renderMix(){
   btn.setAttribute('aria-checked', mixMode ? 'true' : 'false');
   btn.title = mixMode
     ? 'マルチ音声 ON — 音声ボタンで足し引きします（最大3本）(R)'
-    : 'マルチ音声 OFF — 音声ボタンは1本に切り替えます (R)';
+    : 'マルチ音声 OFF (R)';
 }
 function toggleMix(){
   if(loadedCount() < 2) return;
