@@ -780,7 +780,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
 
   /* 29. 音量は配信ごとに持ち、バーは今映している配信のものを編集する。
-         同時再生で実況とチームVCを混ぜるとき、片方だけ下げられること */
+         マルチ音声で実況とチームVCを混ぜるとき、片方だけ下げられること */
   {
     const { ctx, page } = await session({ keys: ['main','a'] });
     const vols = () => page.evaluate(() => {
@@ -798,7 +798,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       label: document.getElementById('volLabel').textContent
     }));
 
-    // 同時再生にして MAIN と VC-A の両方を鳴らす
+    // マルチ音声にして MAIN と VC-A の両方を鳴らす
     await page.evaluate(() => document.getElementById('mix').click());
     await page.evaluate(() => document.querySelector('[data-aud="a"]').click());
     await sleep(800);
