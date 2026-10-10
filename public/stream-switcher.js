@@ -1209,6 +1209,13 @@ function fmt(sec){
    流れていく（＝遅れていく）。どれだけずらしたかがそのまま絵になる。
    端まで寄ったら、その映像のバーだけ中央へ戻す（差の読みは右上の数字）。
 
+   差は「開いたときの進み具合 + 画面で動かした量」で数える。画面で動かした
+   量はこの時計に対する位置そのもので、LIVE端の推定を通さない。推定は
+   突き合わせ処理が「LIVE端から LIVE_EPS 以内なら LIVE端」と貼り直すので、
+   推定経由で数えると数秒の差がそこへ吸われて消える（実機で、2秒止めて
+   合わせたのに「差はありません」になった）。開いているあいだは貼り直しも
+   止める（reconcileTransport）。
+
    完了で元の表示へ戻し、ズレを適用する。ライブはいちばん進んでいる
    （LIVE に近い）映像を LIVE端へ送り、全員を同じだけ進める。他の映像は
    その差をズレ微調整（trim）として持つので、以後のシークや LIVE でも
@@ -1225,6 +1232,10 @@ let syncDrag = null;           // バーを掴んでいるあいだ、その配�
 let syncClock = 0;             // 画面を開いてから時計が進んだ秒数
 let syncClockWall = 0;
 const syncAnchor = {main:0, a:0, b:0};     // バーの中央 = syncAnchor + syncClock
+/* 差を数える基準。開いたときの位置（syncOrigin）と、そのときの進み具合（syncBase）。
+   syncAnchor はバーを中央へ戻すたびに動くが、こちらは開いているあいだ動かさない */
+const syncOrigin = {main:0, a:0, b:0};
+const syncBase = {main:0, a:0, b:0};
 const syncPaused = {main:false, a:false, b:false};
 const syncHold = {main:null, a:null, b:null};
 
@@ -1237,12 +1248,21 @@ function syncTick(){
   syncClockWall = now;
 }
 function syncCenter(k){ return syncAnchor[k] + syncClock; }
-/* 進み具合。ライブは LIVE端からの位置（trim は混ぜない）、アーカイブは
-   動画の先頭からの位置。比べられるのは同じ種類どうしだけ */
-function syncAhead(k){
+/* 開いたときの進み具合。ライブは LIVE端からの位置（trim は混ぜない）。
+   それまでに付いていたズレはここに入る。アーカイブは開始時刻が動画ごとに
+   違い、位置を比べても意味が無いので 0（＝画面で動かした量だけを数える） */
+function syncAheadAtOpen(k){
   const cur = playerTime(k);
+  if(cur === null || isArchive(k)) return 0;
+  const edge = liveEdge(k);
+  return edge > 0 ? cur - edge : 0;
+}
+/* 進み具合 = 開いたときの進み具合 + 画面で動かした量（時計に対する位置）。
+   比べられるのは同じ種類どうしだけ */
+function syncAhead(k, pos){
+  const cur = pos !== undefined ? pos : playerTime(k);
   if(cur === null) return null;
-  return isArchive(k) ? cur : cur - liveEdge(k);
+  return syncBase[k] + (cur - (syncOrigin[k] + syncClock));
 }
 /* いちばん進んでいる映像。巻き戻せないライブは LIVE端から動かせないので、
    あればそれが基準になる */
@@ -1458,7 +1478,7 @@ function renderSync(){
     diffEl.classList.toggle('lead', group.length > 1 && k === leader);
     if(group.length < 2 || !leader) diffEl.textContent = '';
     else if(k === leader) diffEl.textContent = archive ? '基準' : 'LIVE にする';
-    else diffEl.textContent = fmtDiff(syncAhead(k) - syncAhead(leader));
+    else diffEl.textContent = fmtDiff(syncAhead(k, shownPos) - syncAhead(leader));
   });
   if(shapeChanged) layoutSync();
   placeSyncLayers();
@@ -1479,13 +1499,19 @@ function openSyncPanel(){
   KEYS.forEach(k => {
     syncHold[k] = null;
     const cur = playerTime(k);
-    syncAnchor[k] = cur === null ? 0 : cur;
+    syncOrigin[k] = syncAnchor[k] = cur === null ? 0 : cur;
+    syncBase[k] = syncAheadAtOpen(k);
     syncPaused[k] = stateOf[k] === ST.PAUSED;
-    // ズレは完了のときに作り直す。残しておくと、画面で LIVE端へ寄せた映像を
-    // 突き合わせ処理が「trim ぶん先に LIVE端がある」と読み、推定が狂う
-    trim[k] = 0;
-    const el = document.getElementById('tr-' + k);
-    if(el) el.textContent = '0.0';
+  });
+  // いま付いているズレを、つまみの位置で見せる。いちばん進んでいる映像を
+  // 中央に置き、他はその差だけ左へ。バーに収まらない差は中央のまま（数字で読む）
+  const lead = syncLeaders(keys);
+  [[lead.lives, lead.live]].forEach(([group, leader]) => {
+    if(!leader || group.length < 2) return;
+    group.forEach(k => {
+      const d = syncBase[k] - syncBase[leader];
+      if(d < 0 && d > -SYNC_RECENTER) syncAnchor[k] -= d;
+    });
   });
   document.body.classList.add('syncMode');
   document.getElementById('syncPanel').hidden = false;
@@ -1523,7 +1549,10 @@ function finishSync(){
   if(lead.live){
     const L = lead.live;
     const aheadL = syncAhead(L);
-    const shift = seekable(L) ? Math.max(0, -aheadL) : 0;
+    // LIVE端までの距離は、基準の映像の実際の位置から測る。差（trim）のほうは
+    // 画面で数えた値を使うので、全員を同じだけ進めれば揃えた差はそのまま残る
+    const curL = playerTime(L), edgeL = liveEdge(L);
+    const shift = seekable(L) && curL !== null && edgeL > 0 ? Math.max(0, edgeL - curL) : 0;
     lead.lives.forEach(k => {
       const cur = playerTime(k);
       if(!seekable(k)){ trim[k] = 0; return; }
@@ -1590,7 +1619,9 @@ function reconcileTransport(){
   // 見ている配信の実測で全配信を貼り直していたため、巻き戻せない MAIN が
   // LIVE端にいるのを見て、60秒戻った VC-A まで「LIVE端にいる」と記録し、
   // 以後 LIVE ボタンでも戻らなくなった（実機で再現）
-  if(!paused){
+  // ズレ微調整の画面を開いているあいだは貼り直さない。止めて合わせた数秒の
+  // 差が LIVE端の推定へ吸われ、完了のときに差が消えてしまう
+  if(!paused && !syncOpen){
     KEYS.forEach(k => {
       const m = measuredOffset(k);
       if(m !== null && m < LIVE_EPS) noteLiveEdge(k);

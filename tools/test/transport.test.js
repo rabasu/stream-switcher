@@ -1070,6 +1070,50 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 38. LIVE端で数秒だけ止めて合わせた場合も、その差が残る。
+         以前は画面を開いているあいだも突き合わせ処理が LIVE端の推定を
+         貼り直していたため、3秒未満の差が推定に吸われて「差はありません」になり、
+         ズレ微調整の値も 0 のままだった（実機で報告） */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncPlay').click());
+    await sleep(2000);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncPlay').click());
+    await sleep(1500);      // 突き合わせ処理を何周か通す
+    const diffText = await page.textContent('.syncCell[data-sk="a"] .syncDiff');
+    const before = await delays(page);
+    const gapBefore = before.a - before.main;
+    await page.evaluate(() => document.getElementById('syncDone').click());
+    await sleep(2500);
+    const after = await delays(page);
+    const st = await page.evaluate(() => ({
+      trA: parseFloat(document.getElementById('tr-a').textContent),
+      hint: document.getElementById('hint').textContent
+    }));
+    check('LIVE端で数秒止めて合わせた差も、画面の差の表示に出る',
+          /^−(1\.\d|2\.\d)秒$/.test(diffText), 'VC-A "' + diffText + '"（実際の差 ' + gapBefore.toFixed(2) + '秒）');
+    check('数秒の差でも、完了でズレ微調整の値になり、差が保たれる',
+          gapBefore > 1.5 && Math.abs(st.trA + gapBefore) < 0.2
+            && Math.abs((after.a - after.main) - gapBefore) < 0.4 && !/差はありません/.test(st.hint),
+          'A のズレ ' + st.trA + '（期待 約 ' + (-gapBefore).toFixed(1) + '） / 差 ' + gapBefore.toFixed(2)
+            + ' → ' + (after.a - after.main).toFixed(2) + ' / ステータス "' + st.hint.trim() + '"');
+
+    // 開き直すと、いまのズレがつまみの位置に出る（両方中央にならない）
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(500);
+    const re = await page.evaluate(() => ({
+      main: parseFloat(document.querySelector('.syncCell[data-sk="main"] .syncBar').value),
+      a: parseFloat(document.querySelector('.syncCell[data-sk="a"] .syncBar').value),
+      diff: document.querySelector('.syncCell[data-sk="a"] .syncDiff').textContent
+    }));
+    check('開き直すと、いまのズレがつまみと差の表示に出る',
+          Math.abs(re.main) < 0.3 && Math.abs(re.a + gapBefore) < 0.4 && /^−(1\.\d|2\.\d)秒$/.test(re.diff),
+          'つまみ MAIN ' + re.main + ' / A ' + re.a + ' / 差 "' + re.diff + '"');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 
