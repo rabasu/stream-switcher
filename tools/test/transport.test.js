@@ -1183,6 +1183,55 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 40. 差を保っているあいだの LIVE は、LIVE端の 0.5秒手前へ全員を同じだけ進める。
+         LIVE端ちょうどを指さないので、配信ごとの着地のずれに当たらず、
+         あとからの合わせ直し（2回目の飛び）も起きない。押すたびに遠のかないこと */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    await page.evaluate(() => {
+      const bar = document.querySelector('.syncCell[data-sk="a"] .syncBar');
+      bar.value = '-8';
+      bar.dispatchEvent(new Event('input', {bubbles:true}));
+      bar.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+    await sleep(1000);
+    await page.evaluate(() => document.getElementById('syncDone').click());
+    await sleep(2500);
+    const g0 = await contentGap(page);
+    const d0 = await delays(page);
+    // 元から LIVE端にいる映像は、わざわざ下げない（端へ向かうシークだけが問題）
+    check('完了で、いちばん進んでいる映像は LIVE端から 0.5秒以内のまま',
+          d0.main >= 0 && d0.main <= 0.6, 'MAIN の遅れ ' + d0.main.toFixed(2) + '秒');
+
+    await page.evaluate(() => { window.__FAKECFG.landLag = {AAAAAAAAAAA: 1.5, BBBBBBBBBBB: 0.2}; });
+    const seeks = () => page.evaluate(() => ({
+      main: window.__FAKE.players['p-main'].seekLog.length,
+      a: window.__FAKE.players['p-a'].seekLog.length
+    }));
+    const rows = [];
+    for(let i = 0; i < 3; i++){
+      await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+      await sleep(3000);
+      const n0 = await seeks();
+      await page.evaluate(() => document.getElementById('golive').click());
+      await sleep(5000);
+      const n1 = await seeks();
+      const d = await delays(page);
+      rows.push({gap: await contentGap(page), main: d.main, nMain: n1.main - n0.main, nA: n1.a - n0.a,
+                 label: await label(page)});
+    }
+    check('LIVE は全員を1回ずつ動かすだけで、着地のずれに当たらず差が保たれる',
+          rows.every(r => Math.abs(r.gap - g0) < 0.2 && r.nMain === 1 && r.nA === 1),
+          rows.map(r => '差 ' + r.gap.toFixed(2) + ' / シーク MAIN ' + r.nMain + '回 A ' + r.nA + '回').join(' | ')
+            + '（基準の差 ' + g0.toFixed(2) + '）');
+    check('LIVE を繰り返しても遠のかず、毎回 LIVE端の約0.5秒手前で LIVE と表示される',
+          rows.every(r => r.main > 0.3 && r.main < 1.0 && r.label.indexOf('LIVE') >= 0),
+          rows.map(r => 'MAIN の遅れ ' + r.main.toFixed(2) + '秒 "' + r.label + '"').join(' | '));
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

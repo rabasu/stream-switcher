@@ -1001,6 +1001,11 @@ function seekPlayer(k){
    着地の揺れにも推定の誤差にも左右されない。
    ================================================================ */
 const LINK_TOL = 0.25;         // これ以上ずれていたら合わせ直す(秒)
+/* 差を保っているあいだの LIVE は、LIVE端の推定よりこれだけ手前を目標にする(秒)。
+   LIVE端ちょうど（やその先）を指すと、プレーヤーが配信ごとに違う量だけ手前へ
+   着地させ、揃えた差が崩れる。推定が少し上振れしていても端に当たらないよう、
+   わずかに手前を狙う。大きくすると LIVE なのに遅れて見えるので小さく保つ */
+const LIVE_MARGIN = 0.5;
 let linkRef = null;            // 基準の配信。null = 関係を持っていない
 const linkGap = {main:null, a:null, b:null};   // 再生位置 - 基準の再生位置
 function clearLinks(){
@@ -1016,6 +1021,21 @@ function captureLinks(ref){
     const c = (k !== ref && players[k] && ready[k] && !isArchive(k)) ? playerTime(k) : null;
     linkGap[k] = c === null ? null : c - r;
   });
+}
+/* 差を保っている配信か（基準を含む） */
+function isLinked(k){ return !!linkRef && (k === linkRef || linkGap[k] !== null); }
+/* 差を保っている配信の全部（基準 + 合わせ直す対象） */
+function linkGroup(){ return linkRef && players[linkRef] ? [linkRef].concat(linkedKeys()) : []; }
+/* 差を保ったまま LIVE へ寄せるとき、全員を進める量。基準の配信が
+   「LIVE端の推定 − LIVE_MARGIN」に来るだけ進める（いちばん進んでいる配信が
+   そこへ来るよう、基準自身のズレも考える）。全員を同じ量だけ相対シークするので、
+   映像どうしの差は崩れない。「完了」と LIVE ボタンで共通に使う */
+function linkedLiveShift(ref, group){
+  if(!ref || !seekable(ref) || isArchive(ref)) return 0;   // 巻き戻せない基準は元から LIVE端
+  const cur = playerTime(ref), edge = liveEdge(ref);
+  if(cur === null || edge <= 0) return 0;
+  const lead = group.reduce((m, k) => Math.max(m, trim[k]), trim[ref]);
+  return Math.max(0, edge - LIVE_MARGIN + (trim[ref] - lead) - cur);
 }
 /* 合わせ直す対象。基準以外の、動かせるライブ */
 function linkedKeys(){
@@ -1144,17 +1164,17 @@ function goLive(){
   verifyTimer = null;
   // 差を保っている配信は LIVE端へ飛ばさない。基準だけを LIVE端へ送り、他は
   // 基準が進むはずの量だけ同じように進める（着地のずれは後で直す）
-  const linked = linkedKeys();
-  const refCur = linkRef ? playerTime(linkRef) : null;
-  const refEdge = linkRef ? liveEdge(linkRef) : 0;
-  const shift = refCur !== null && refEdge > 0 ? Math.max(0, refEdge - refCur) : 0;
+  // 基準も含めて LIVE端ちょうどへは飛ばさない。全員を同じ量だけ進め、基準を
+  // LIVE端の少し手前（LIVE_MARGIN）に置く。「完了」と同じ動かし方
+  const linked = linkGroup();
+  const shift = linkedLiveShift(linkRef, linked);
   KEYS.forEach(k => {
     const p = players[k];
     const cur = playerTime(k);
     // アーカイブに LIVE端は無い。終端へ飛ばしても意味が無いので触らない
     if(!p || cur === null || isArchive(k)) return;
     if(linked.includes(k)){
-      if(shift > 0.05){ try{ p.seekTo(cur + shift, true); }catch(e){} }
+      if(shift > 0.05 && seekable(k)){ try{ p.seekTo(cur + shift, true); }catch(e){} }
       return;
     }
     try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){}
@@ -1178,17 +1198,10 @@ function goLive(){
     markCommand();
     renderTransport();
   }, SETTLE_MS);
-  // 差を保っている配信は、基準の位置から合わせ直したあとで LIVE端を貼る。
-  // trim ぶん下げた位置が、その配信にとっての「LIVE + ズレ」
-  enforceLinks(seq, () => {
-    const now = performance.now();
-    linked.forEach(k => {
-      const cur = playerTime(k);
-      if(cur === null || cur <= 0) return;
-      edgeBase[k] = cur - trim[k];
-      edgeWall[k] = now;
-    });
-  });
+  // 相対シークなので通常は崩れない。崩れていたときだけ合わせ直す（保険）。
+  // 差を保っている配信の LIVE端の推定は貼り直さない（LIVE_MARGIN ぶん手前を
+  // LIVE端と記録すると、押すたびに推定が下がっていく）
+  enforceLinks(seq);
   renderTransport();
 }
 /* ライブは再生位置が入るまで少し掛かる。取れるまで LIVE へ同期を再試行。
@@ -1685,16 +1698,18 @@ function finishSync(){
     // 揃えた位置関係を、そのまま保つべき差として記録する（動かす前に採る）
     if(lead.lives.length >= 2) captureLinks(L); else clearLinks();
     const aheadL = syncAhead(L);
-    // LIVE端までの距離は、基準の映像の実際の位置から測る。差（trim）のほうは
-    // 画面で数えた値を使うので、全員を同じだけ進めれば揃えた差はそのまま残る
-    const curL = playerTime(L), edgeL = liveEdge(L);
-    const shift = seekable(L) && curL !== null && edgeL > 0 ? Math.max(0, edgeL - curL) : 0;
+    // 差（trim）は画面で数えた値。LIVE へは全員を同じだけ進めて寄せるので
+    // （LIVE ボタンと共通の linkedLiveShift）、揃えた差はそのまま残る
     lead.lives.forEach(k => {
-      const cur = playerTime(k);
       if(!seekable(k)){ trim[k] = 0; return; }
       trim[k] = k === L ? 0 : Math.min(0, syncAhead(k) - aheadL);
-      if(shift > 0.05){ try{ players[k].seekTo(cur + shift, true); }catch(e){} }
       if(k !== L && trim[k] < -0.05) applied.push(SRC_LABEL[k] + ' ' + fmtDiff(trim[k]));
+    });
+    const shift = linkedLiveShift(L, lead.lives);
+    if(shift > 0.05) lead.lives.forEach(k => {
+      const cur = playerTime(k);
+      if(!seekable(k) || cur === null) return;
+      try{ players[k].seekTo(cur + shift, true); }catch(e){}
     });
     targetOffset = 0;
   }
@@ -1760,6 +1775,9 @@ function reconcileTransport(){
   // 差が LIVE端の推定へ吸われ、完了のときに差が消えてしまう
   if(!paused && !syncOpen){
     KEYS.forEach(k => {
+      // 差を保っている配信は、LIVE でも LIVE端の LIVE_MARGIN 手前にいる。
+      // そこを LIVE端と貼り直すと推定が下がり、LIVE を押すたびに遠のいていく
+      if(isLinked(k)) return;
       const m = measuredOffset(k);
       if(m !== null && m < LIVE_EPS) noteLiveEdge(k);
     });
