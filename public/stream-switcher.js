@@ -759,6 +759,7 @@ function resetTransport(){
   clearTimeout(verifyTimer);
   verifyTimer = null;
   transportSeq++;
+  clearLinks();
   KEYS.forEach(k => {
     // ズレ調整は配信ごとの補正なので、別の配信を読み込んだら持ち越さない
     trim[k] = 0;
@@ -984,19 +985,100 @@ function seekPlayer(k){
   try{ p.seekTo(Math.max(0, edge - targetOffset + trim[k]), true); return true; }
   catch(e){ return false; }
 }
+/* ================================================================
+   映像どうしの差の保持（リンク）
+   ズレ微調整（trim）は「その配信の LIVE端からどれだけ下げるか」で持っている。
+   ところが本物のライブは、LIVE端を指してシークしても端ちょうどには着地せず、
+   セグメント1つぶん（1〜2秒）ほど手前に、しかも配信ごとに違う量だけ手前に
+   着地する。LIVE のたびに着地点を LIVE端とみなして trim を当て直すと、
+   着地の差がそのまま映像どうしのずれになる（表示の trim は変わらないので、
+   画面からは気付けない。実機で報告）。
+
+   そこで、合わせた関係を「基準の配信との再生位置の差」でも持つ。ライブの
+   再生位置は配信ごとに配信開始からの秒数で、両方を流しているあいだは差が
+   一定のまま変わらない。シーク・LIVE・再開のあと、落ち着いてから実測し、
+   差が崩れていれば基準に合わせて戻す。LIVE端の推定を通さないので、
+   着地の揺れにも推定の誤差にも左右されない。
+   ================================================================ */
+const LINK_TOL = 0.25;         // これ以上ずれていたら合わせ直す(秒)
+let linkRef = null;            // 基準の配信。null = 関係を持っていない
+const linkGap = {main:null, a:null, b:null};   // 再生位置 - 基準の再生位置
+function clearLinks(){
+  linkRef = null;
+  KEYS.forEach(k => { linkGap[k] = null; });
+}
+/* いまの再生位置の差を、保つべき関係として記録する */
+function captureLinks(ref){
+  const r = playerTime(ref);
+  if(r === null){ clearLinks(); return; }
+  linkRef = ref;
+  KEYS.forEach(k => {
+    const c = (k !== ref && players[k] && ready[k] && !isArchive(k)) ? playerTime(k) : null;
+    linkGap[k] = c === null ? null : c - r;
+  });
+}
+/* 合わせ直す対象。基準以外の、動かせるライブ */
+function linkedKeys(){
+  if(!linkRef || !players[linkRef]) return [];
+  return KEYS.filter(k => k !== linkRef && linkGap[k] !== null && players[k] && ready[k]
+                          && seekable(k) && !isArchive(k));
+}
+/* 落ち着いてから、記録した差どおりか確かめて直す。間に別の操作が入ったらやめる。
+   直したあとの位置も確かめる（直したシーク自体が少しずれることがある） */
+function enforceLinks(seq, after){
+  if(!linkedKeys().length){ if(after) setTimeout(() => { if(seq === transportSeq) after(); }, SETTLE_MS); return; }
+  let waits = 0, rounds = 0;
+  const run = () => {
+    if(seq !== transportSeq || !linkRef) return;
+    if(anyState(ST.BUFFERING) && ++waits < 10){ setTimeout(run, 500); return; }
+    const r = playerTime(linkRef);
+    if(r === null) return;
+    let moved = false;
+    linkedKeys().forEach(k => {
+      const c = playerTime(k);
+      if(c === null) return;
+      const want = r + linkGap[k];
+      if(Math.abs(c - want) > LINK_TOL){
+        try{ players[k].seekTo(Math.max(0, want), true); moved = true; }catch(e){}
+      }
+    });
+    if(moved){
+      markCommand();
+      if(++rounds < 3){ setTimeout(run, SETTLE_MS); return; }
+    }
+    if(after) after();
+    renderTransport();
+  };
+  setTimeout(run, SETTLE_MS);
+}
+/* まとめてシーク OFF で1本だけ動かしたときは、関係そのものを変えにいっている。
+   落ち着いてから、新しい差を記録し直す */
+function relinkAfter(seq){
+  if(!linkRef) return;
+  let waits = 0;
+  const run = () => {
+    if(seq !== transportSeq || !linkRef) return;
+    if(anyState(ST.BUFFERING) && ++waits < 10){ setTimeout(run, 500); return; }
+    captureLinks(linkRef);
+  };
+  setTimeout(run, SETTLE_MS);
+}
+/* シーク系の操作のあと。まとめてなら差を保ち、1本だけなら差を記録し直す */
+function afterSeek(seq){ groupSeek ? enforceLinks(seq) : relinkAfter(seq); }
+
 function seekAll(){
-  transportSeq++;
+  const seq = ++transportSeq;
   let ok = false;
   seekKeys().forEach(k => { if(seekPlayer(k)) ok = true; });
   const skipped = groupSeek ? noRewindKeys() : [];
   if(targetOffset > 0 && skipped.length) setStatusLine(noRewindMessage(skipped));
-  if(ok){ markCommand(); scheduleSeekVerify(); }
+  if(ok){ markCommand(); scheduleSeekVerify(); afterSeek(seq); }
   return ok;
 }
 /* 相対シーク（delta>0 = 過去へ）。LIVE端の推定を通さず再生位置から直接
    動かすので、推定がずれていても要求どおりの量だけ確実に動く */
 function seekRelative(delta){
-  transportSeq++;
+  const seq = ++transportSeq;
   if(!groupSeek) offsetIntent = true;
   let ok = false;
   seekKeys().forEach(k => {
@@ -1011,6 +1093,7 @@ function seekRelative(delta){
   targetOffset = Math.max(0, targetOffset + delta);
   markCommand();
   scheduleSeekVerify();
+  afterSeek(seq);
   renderTransport();
 }
 /* シークが本当に効いたかを実測で確かめる。DVR の範囲外などでクランプされたら、
@@ -1041,7 +1124,10 @@ function togglePlay(){
     if(!p || !ready[k]) return;
     try{ paused ? p.pauseVideo() : p.playVideo(); }catch(e){}
   });
-  if(!paused) applyAudio(audioKeys, true);
+  if(!paused){
+    applyAudio(audioKeys, true);
+    enforceLinks(++transportSeq);   // 再開の立ち上がりは配信ごとにばらつく
+  }
   markCommand();
   renderTransport();
   showCenter();
@@ -1056,11 +1142,21 @@ function goLive(){
   paused = false;
   clearTimeout(verifyTimer);
   verifyTimer = null;
+  // 差を保っている配信は LIVE端へ飛ばさない。基準だけを LIVE端へ送り、他は
+  // 基準が進むはずの量だけ同じように進める（着地のずれは後で直す）
+  const linked = linkedKeys();
+  const refCur = linkRef ? playerTime(linkRef) : null;
+  const refEdge = linkRef ? liveEdge(linkRef) : 0;
+  const shift = refCur !== null && refEdge > 0 ? Math.max(0, refEdge - refCur) : 0;
   KEYS.forEach(k => {
     const p = players[k];
     const cur = playerTime(k);
     // アーカイブに LIVE端は無い。終端へ飛ばしても意味が無いので触らない
     if(!p || cur === null || isArchive(k)) return;
+    if(linked.includes(k)){
+      if(shift > 0.05){ try{ p.seekTo(cur + shift, true); }catch(e){} }
+      return;
+    }
     try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){}
   });
   applyAudio(audioKeys, true);
@@ -1074,7 +1170,7 @@ function goLive(){
     const now = performance.now();
     KEYS.forEach(k => {
       const cur = playerTime(k);
-      if(cur === null || cur <= 0 || isArchive(k)) return;
+      if(cur === null || cur <= 0 || isArchive(k) || linked.includes(k)) return;
       edgeBase[k] = cur;
       edgeWall[k] = now;
       if(trim[k] < 0) seekPlayer(k);
@@ -1082,6 +1178,17 @@ function goLive(){
     markCommand();
     renderTransport();
   }, SETTLE_MS);
+  // 差を保っている配信は、基準の位置から合わせ直したあとで LIVE端を貼る。
+  // trim ぶん下げた位置が、その配信にとっての「LIVE + ズレ」
+  enforceLinks(seq, () => {
+    const now = performance.now();
+    linked.forEach(k => {
+      const cur = playerTime(k);
+      if(cur === null || cur <= 0) return;
+      edgeBase[k] = cur - trim[k];
+      edgeWall[k] = now;
+    });
+  });
   renderTransport();
 }
 /* ライブは再生位置が入るまで少し掛かる。取れるまで LIVE へ同期を再試行。
@@ -1178,9 +1285,11 @@ function adjustTrim(k, d){
   // 押せない向きは動かさない（無効化と同じ判定。表示だけ進むのを防ぐ）
   if(!seekable(k)) return;
   if(d > 0 && trimHeadroom(k) < d - TRIM_EPS) return;
-  transportSeq++;
+  const seq = ++transportSeq;
+  const before = trim[k];
   trim[k] = Math.round((trim[k] + d) * 10) / 10;
   document.getElementById('tr-'+k).textContent = trim[k].toFixed(1);
+  if(!isArchive(k)) shiftLink(k, trim[k] - before, seq);
   if(isArchive(k)){
     // アーカイブは共通軸を通さず、その場から要求どおりの量だけ動かす
     offsetIntent = true;
@@ -1188,6 +1297,20 @@ function adjustTrim(k, d){
     if(cur !== null){ try{ players[k].seekTo(Math.max(0, cur + d), true); markCommand(); }catch(e){} }
   } else if(seekPlayer(k)) markCommand();
   renderTrim();
+}
+/* ± ボタンで1本だけ動かした。保つべき差も同じだけ動かす。まだ差を持って
+   いなければ、いまの位置関係を記録してから動かす（基準はいちばん進んでいる配信） */
+function shiftLink(k, d, seq){
+  const lives = KEYS.filter(x => players[x] && ready[x] && !isArchive(x) && playerTime(x) !== null);
+  if(lives.length < 2) return;
+  if(!linkRef || !lives.includes(linkRef)){
+    const others = lives.filter(x => x !== k);
+    const ref = others.reduce((m, x) => trim[x] > trim[m] ? x : m, others[0]);
+    captureLinks(ref);
+  }
+  if(k === linkRef) KEYS.forEach(x => { if(linkGap[x] !== null) linkGap[x] -= d; });
+  else if(linkGap[k] !== null) linkGap[k] += d;
+  enforceLinks(seq);
 }
 function fmt(sec){
   sec = Math.max(0, Math.round(sec));
@@ -1503,6 +1626,16 @@ function openSyncPanel(){
     syncBase[k] = syncAheadAtOpen(k);
     syncPaused[k] = stateOf[k] === ST.PAUSED;
   });
+  // 差を保っている配信は、LIVE端の推定ではなく記録した差から読む。推定は
+  // 着地の揺れを含むので、設定したズレどおりに見えなくなる。
+  // 読み = 設定したズレ（trim の差）+ 記録した差からの実際のずれ
+  if(linkRef && keys.includes(linkRef) && !isArchive(linkRef)){
+    const r = playerTime(linkRef);
+    linkedKeys().filter(k => keys.includes(k)).forEach(k => {
+      syncBase[k] = syncBase[linkRef] + (trim[k] - trim[linkRef])
+                  + ((playerTime(k) - r) - linkGap[k]);
+    });
+  }
   // いま付いているズレを、つまみの位置で見せる。いちばん進んでいる映像を
   // 中央に置き、他はその差だけ左へ。バーに収まらない差は中央のまま（数字で読む）
   const lead = syncLeaders(keys);
@@ -1546,8 +1679,11 @@ function finishSync(){
   const applied = [];
 
   // ライブ: 基準を LIVE端へ送る。全員を同じだけ進めるので、揃えた差はそのまま残る
+  const seq = transportSeq;
   if(lead.live){
     const L = lead.live;
+    // 揃えた位置関係を、そのまま保つべき差として記録する（動かす前に採る）
+    if(lead.lives.length >= 2) captureLinks(L); else clearLinks();
     const aheadL = syncAhead(L);
     // LIVE端までの距離は、基準の映像の実際の位置から測る。差（trim）のほうは
     // 画面で数えた値を使うので、全員を同じだけ進めれば揃えた差はそのまま残る
@@ -1583,6 +1719,7 @@ function finishSync(){
   applyAudio(audioKeys, true);
   keys.forEach(k => { try{ players[k].playVideo(); }catch(e){} });
   markCommand();
+  if(lead.live) enforceLinks(seq);   // LIVE端への着地がずれても、揃えた差へ戻す
   closeSyncPanel();
   renderTransport();
   setStatusLine(applied.length ? 'ズレを適用しました（' + applied.join(' / ') + '）'

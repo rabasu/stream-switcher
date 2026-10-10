@@ -1114,6 +1114,75 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 39. 画面で合わせたあと LIVE を押しても、映像どうしの差が保たれる。
+         本物のライブは LIVE端を指しても配信ごとに違う量だけ手前に着地する。
+         以前はその着地点を各配信の LIVE端とみなして trim を当て直していたため、
+         着地の差がそのまま映像のずれになった（実機で 1〜2秒、表示は変わらず） */
+  const contentGap = page => page.evaluate(() =>
+    window.__FAKE.players['p-a'].getCurrentTime() - window.__FAKE.players['p-main'].getCurrentTime());
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    await page.evaluate(() => {
+      const bar = document.querySelector('.syncCell[data-sk="a"] .syncBar');
+      bar.value = '-8';
+      bar.dispatchEvent(new Event('input', {bubbles:true}));
+      bar.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+    await sleep(1000);
+    await page.evaluate(() => document.getElementById('syncDone').click());
+    await sleep(2500);
+    const g0 = await contentGap(page);
+    // ここから先、MAIN は LIVE端の 1.5秒手前、VC-A は 0.2秒手前に着地する
+    await page.evaluate(() => { window.__FAKECFG.landLag = {AAAAAAAAAAA: 1.5, BBBBBBBBBBB: 0.2}; });
+    await page.evaluate(() => document.getElementById('golive').click());
+    await sleep(6000);
+    const g1 = await contentGap(page);
+    const tr1 = await page.textContent('#tr-a');
+    check('画面で合わせたあと LIVE を押しても、映像どうしの差が保たれる',
+          Math.abs(g1 - g0) < 0.3,
+          '差 ' + g0.toFixed(2) + ' → LIVE 後 ' + g1.toFixed(2) + '秒 / VC-A のズレ表示 ' + tr1);
+
+    // 続けて戻したりシークバーを動かしたりしても、差は保たれる
+    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+    await sleep(5000);
+    const g2 = await contentGap(page);
+    await page.evaluate(() => {
+      const el = document.getElementById('scrub'); const max = parseFloat(el.max);
+      el.value = String(max - 5);
+      el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
+    });
+    await sleep(5000);
+    const g3 = await contentGap(page);
+    await page.evaluate(() => document.getElementById('golive').click());
+    await sleep(6000);
+    const g4 = await contentGap(page);
+    const realMain = await page.evaluate(() => { const p = window.__FAKE.players['p-main']; return p.edge() - p.getCurrentTime(); });
+    check('その後のシーク・シークバー・LIVE でも差が保たれ、LIVE で最先端近くへ戻る',
+          Math.abs(g2 - g0) < 0.3 && Math.abs(g3 - g0) < 0.3 && Math.abs(g4 - g0) < 0.3 && realMain < 3,
+          '差 ' + [g2, g3, g4].map(g => g.toFixed(2)).join(' / ') + '（基準 ' + g0.toFixed(2) + '） / MAIN の遅れ ' + realMain.toFixed(1));
+
+    // ± ボタンで動かした量も、その後の LIVE で保たれる
+    await page.evaluate(() => document.querySelector('[data-trim="a"][data-d="0.5"]').click());
+    await sleep(3000);
+    const g5 = await contentGap(page);
+    await page.evaluate(() => document.getElementById('golive').click());
+    await sleep(6000);
+    const g6 = await contentGap(page);
+    check('± ボタンで足した量も含めて、LIVE 後に差が保たれる',
+          Math.abs((g5 - g0) - 0.5) < 0.3 && Math.abs(g6 - g5) < 0.3,
+          '± 後の差 ' + g5.toFixed(2) + '（期待 ' + (g0 + 0.5).toFixed(2) + '） → LIVE 後 ' + g6.toFixed(2));
+
+    // 着地が揺れたあとに開き直しても、画面の差の読みは設定したズレのまま
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(500);
+    const diff = await page.textContent('.syncCell[data-sk="a"] .syncDiff');
+    check('LIVE のあとに開き直しても、画面の差は設定したズレどおりに出る',
+          diff === '−7.5秒', 'VC-A "' + diff + '"（実際の差 ' + g6.toFixed(2) + '秒）');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 
