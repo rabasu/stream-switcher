@@ -271,6 +271,7 @@
         <span class="trim">MAIN<button data-trim="main" data-d="-0.5">−</button><var id="tr-main">0.0</var><button data-trim="main" data-d="0.5">+</button></span>
         <span class="trim">A<button data-trim="a" data-d="-0.5">−</button><var id="tr-a">0.0</var><button data-trim="a" data-d="0.5">+</button></span>
         <span class="trim">B<button data-trim="b" data-d="-0.5">−</button><var id="tr-b">0.0</var><button data-trim="b" data-d="0.5">+</button></span>
+        <button class="pill" id="syncOpenBtn" title="映像を並べて、ズレを見ながら合わせる">画面で合わせる</button>
       </div>
     </div>
     <div class="group">
@@ -283,6 +284,21 @@
     </div>
   </div>
 </div>
+</div>
+
+<!-- ズレ微調整の画面。読み込んだ映像を並べ、1本ずつ止めたりバーで前後させたり
+     して場面を揃える。映像そのものは #stage のレイヤーを各セルの枠の上へ
+     動かして見せる（iframe を DOM で移すと読み込み直しになるため）。
+     セルは JS が作る -->
+<div id="syncPanel" role="dialog" aria-modal="true" aria-labelledby="syncTitle" hidden>
+  <div class="syncHead">
+    <div class="syncHeadText">
+      <h2 id="syncTitle">ズレ微調整</h2>
+      <p>映像ごとに止めたり、バー（前後30秒）で動かしたりして場面を揃えてください。<b>完了</b>を押すと、いちばん進んでいる映像を LIVE にし、他はその差を保ったまま再生します。</p>
+    </div>
+    <button type="button" id="syncDone">完了</button>
+  </div>
+  <div id="syncGrid"></div>
 </div>
 
 <div id="help">
@@ -309,6 +325,7 @@
       <tr><td>R</td><td>マルチ音声のオン / オフ。オンのあいだは音声ボタンと Q/W/E が「足す / 外す」になり、最大3本まで混ぜられます（MAIN + VC-A など）。最後の1本は外せません（消すときは M）</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
       <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します。Space で映像も切り替えて往復している間は自動で一時解除し、切替直後の画質低下を避けます</td></tr>
+      <tr><td>ズレ微調整</td><td>「その他」のズレ微調整にある <b>画面で合わせる</b> で、映像を並べて合わせる画面が開きます。映像ごとに止める / 流す（映像を押しても同じ）ことができ、バーは前後30秒の範囲で再生位置を動かせます。<b>完了</b>を押すと、いちばん進んでいる（LIVE に近い）映像を LIVE にし、他はその差をズレ微調整として保ったまま再生します。アーカイブは位置をそのまま残し、まとめてシークでズレを保ちます</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
       <tr><td>?</td><td>このヘルプ</td></tr>
     </table>

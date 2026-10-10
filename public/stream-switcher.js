@@ -124,6 +124,7 @@ const loadedId = {main:null, a:null, b:null};
    条件を満たしているので、最初から音を出せる。共有URLから開いたときは
    ジェスチャーが無いので、音を止めたまま始めてチップで解除してもらう */
 function build(ids, withSound){
+  closeSyncPanel();               // 読み込み直したら、並べていた画面は閉じる
   resetTransport();               // 遅れ・trim・実状態の記録を持ち越さない
   audioUnlocked = !!withSound;
   resumeEco();                    // 省帯域の一時解除は持ち越さない
@@ -239,7 +240,8 @@ let ecoResumeTimer = null;
 
 function ecoActive(){ return ecoMode && !ecoSuspended; }
 function applyEcoLayers(){
-  const on = ecoActive();
+  // ズレ微調整の画面では並べた映像をどれも見ている。どれも縮めない
+  const on = ecoActive() && !syncOpen;
   KEYS.forEach(x => document.getElementById('layer-'+x)
     .classList.toggle('eco', x !== videoSrc && on));
 }
@@ -353,6 +355,8 @@ function renderAvailability(){
   document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !players[b.dataset.aud]);
   // ズレ微調整も、無い配信の分は動かしても意味がない
   renderTrim();                   // ズレ微調整は「進める余地」でも押せるかが変わる
+  // 画面で合わせるのは、並べる相手がいるときだけ
+  document.getElementById('syncOpenBtn').disabled = loadedCount() < 2;
   // マルチ音声は混ぜる相手が要る
   document.getElementById('mix').disabled = loadedCount() < 2;
   if(loadedCount() < 2 && mixMode) mixMode = false;
@@ -1190,6 +1194,372 @@ function fmt(sec){
   return Math.floor(sec/60) + ':' + String(sec%60).padStart(2,'0');
 }
 
+/* ================================================================
+   ズレ微調整の画面
+   ±0.5秒のボタンだけでは、何秒ずれているかを映像を見比べながら探る
+   ことになり、合わせるのに時間が掛かる。読み込んだ映像を並べて同時に
+   見せ、1本ずつ止めたり前後させたりして場面を揃えてもらう。
+
+   映像は #stage のレイヤーを各セルの枠（.syncVideo）の上へ動かして
+   見せる。iframe を DOM で移すと読み込み直しになるので、位置だけ変える。
+
+   バーは「再生位置の設定」に特化させる。全幅で60秒（前後30秒）に絞り、
+   手で細かく合わせやすくする。つまみは再生と一緒に進む時計に対する
+   位置を出すので、流しているあいだは止まって見え、止めた映像だけが左へ
+   流れていく（＝遅れていく）。どれだけずらしたかがそのまま絵になる。
+   端まで寄ったら、その映像のバーだけ中央へ戻す（差の読みは右上の数字）。
+
+   完了で元の表示へ戻し、ズレを適用する。ライブはいちばん進んでいる
+   （LIVE に近い）映像を LIVE端へ送り、全員を同じだけ進める。他の映像は
+   その差をズレ微調整（trim）として持つので、以後のシークや LIVE でも
+   差を保ったまま動く。アーカイブは共通の軸が無いので位置をそのまま残し、
+   まとめてシークでズレを保つ（原則5）。
+   ================================================================ */
+const SYNC_HALF = 30;          // バーの片側の幅(秒)。全幅で60秒
+const SYNC_RECENTER = 27;      // つまみがここまで端へ寄ったら、そのバーを中央へ戻す
+const SYNC_HOLD_MS = 700;      // シーク直後、実測が追いつくまで要求した位置で描く
+const SYNC_STEPS = [-5, -1, -0.1, 0.1, 1, 5];
+let syncOpen = false;
+let syncTimer = null;
+let syncDrag = null;           // バーを掴んでいるあいだ、その配信
+let syncClock = 0;             // 画面を開いてから時計が進んだ秒数
+let syncClockWall = 0;
+const syncAnchor = {main:0, a:0, b:0};     // バーの中央 = syncAnchor + syncClock
+const syncPaused = {main:false, a:false, b:false};
+const syncHold = {main:null, a:null, b:null};
+
+function syncTargets(){ return KEYS.filter(k => players[k] && ready[k] && playerTime(k) !== null); }
+/* 時計はどれか1本でも流れているあいだだけ進む。全部止めればつまみも止まる */
+function syncTick(){
+  const now = performance.now();
+  if(syncTargets().some(k => !syncPaused[k]))
+    syncClock += (now - syncClockWall) / 1000 * (actualRate() || 1);
+  syncClockWall = now;
+}
+function syncCenter(k){ return syncAnchor[k] + syncClock; }
+/* 進み具合。ライブは LIVE端からの位置（trim は混ぜない）、アーカイブは
+   動画の先頭からの位置。比べられるのは同じ種類どうしだけ */
+function syncAhead(k){
+  const cur = playerTime(k);
+  if(cur === null) return null;
+  return isArchive(k) ? cur : cur - liveEdge(k);
+}
+/* いちばん進んでいる映像。巻き戻せないライブは LIVE端から動かせないので、
+   あればそれが基準になる */
+function syncLeaders(keys){
+  const pick = list => {
+    const fixed = list.find(k => !seekable(k));
+    if(fixed) return fixed;
+    let best = null, bestV = -Infinity;
+    list.forEach(k => { const v = syncAhead(k); if(v !== null && v > bestV){ best = k; bestV = v; } });
+    return best;
+  };
+  const lives = keys.filter(k => !isArchive(k));
+  const archives = keys.filter(k => isArchive(k));
+  return {live: pick(lives), archive: pick(archives), lives, archives};
+}
+function fmtDiff(sec){
+  if(Math.abs(sec) < 0.05) return '±0.0秒';
+  return (sec < 0 ? '−' : '+') + Math.abs(sec).toFixed(1) + '秒';
+}
+
+function buildSyncCells(){
+  const grid = document.getElementById('syncGrid');
+  KEYS.forEach(k => {
+    const cell = document.createElement('div');
+    cell.className = 'syncCell';
+    cell.dataset.sk = k;
+    cell.hidden = true;
+    cell.style.setProperty('--sColor', SRC_COLOR[k]);
+
+    const video = document.createElement('div');
+    video.className = 'syncVideo';
+    video.title = SRC_LABEL[k] + ' を止める / 流す';
+    video.addEventListener('click', () => toggleSyncPlay(k));
+
+    const ctl = document.createElement('div');
+    ctl.className = 'syncCtl';
+    const name = document.createElement('span');
+    name.className = 'syncName';
+    name.textContent = SRC_LABEL[k];
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'syncPlay';
+    play.innerHTML =
+      '<svg class="iconPause" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' +
+      '<svg class="iconPlay" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
+    play.addEventListener('click', () => toggleSyncPlay(k));
+    const pos = document.createElement('span');
+    pos.className = 'syncPos';
+    const diff = document.createElement('span');
+    diff.className = 'syncDiff';
+    ctl.append(name, play, pos, diff);
+
+    const bar = document.createElement('input');
+    bar.type = 'range';
+    bar.className = 'syncBar';
+    bar.min = String(-SYNC_HALF);
+    bar.max = String(SYNC_HALF);
+    bar.step = '0.1';
+    bar.value = '0';
+    bar.setAttribute('aria-label', SRC_LABEL[k] + ' の再生位置（前後' + SYNC_HALF + '秒）');
+    bar.addEventListener('input', () => { syncDrag = k; renderSync(); });
+    bar.addEventListener('change', () => {
+      syncDrag = null;
+      syncSeek(k, syncCenter(k) + parseFloat(bar.value));
+    });
+    const ticks = document.createElement('div');
+    ticks.className = 'syncTicks';
+    ['−30秒', '−15', '0', '+15', '+30秒'].forEach(t => {
+      const s = document.createElement('span');
+      s.textContent = t;
+      ticks.appendChild(s);
+    });
+
+    const steps = document.createElement('div');
+    steps.className = 'syncSteps';
+    SYNC_STEPS.forEach(d => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.sstep = String(d);
+      b.textContent = (d < 0 ? '−' : '+') + Math.abs(d) + 's';
+      b.title = SRC_LABEL[k] + ' を ' + Math.abs(d) + '秒 ' + (d < 0 ? '戻す' : '進める');
+      b.addEventListener('click', () => {
+        const cur = playerTime(k);
+        if(cur !== null) syncSeek(k, cur + d);
+      });
+      steps.appendChild(b);
+    });
+
+    cell.append(video, ctl, bar, ticks, steps);
+    grid.appendChild(cell);
+  });
+}
+
+function syncSeek(k, t){
+  const p = players[k];
+  if(!p || !seekable(k)) return;
+  // ライブは LIVE端より先へ行けない。要求をそこで止めておくと、つまみが
+  // 行けない位置に一瞬だけ描かれることもない
+  if(!isArchive(k)){ const edge = liveEdge(k); if(edge > 0) t = Math.min(t, edge); }
+  else{ const end = archiveEnd(k); if(end > 0) t = Math.min(t, end); }
+  t = Math.max(0, t);
+  transportSeq++;
+  try{ p.seekTo(t, true); }catch(e){ return; }
+  syncHold[k] = {t: t, wall: performance.now()};
+  markCommand();
+  renderSync();
+}
+function toggleSyncPlay(k){
+  const p = players[k];
+  if(!p || !ready[k] || !seekable(k)) return;
+  syncTick();                    // 止める / 流す前までの時計を確定させる
+  syncPaused[k] = !syncPaused[k];
+  try{ syncPaused[k] ? p.pauseVideo() : p.playVideo(); }catch(e){}
+  if(!syncPaused[k]) audioUnlocked = true;
+  markCommand();
+  renderSync();
+}
+
+/* グリッドの寸法。映像は 16:9 のまま、画面の高さに収まる大きさにする */
+function layoutSync(){
+  const n = syncTargets().length;
+  const grid = document.getElementById('syncGrid');
+  const head = document.querySelector('#syncPanel .syncHead');
+  const narrow = innerWidth <= 700;
+  const cols = narrow ? 1 : (n >= 3 && innerWidth < 1100 ? 2 : Math.max(1, n));
+  const rows = Math.ceil(n / cols);
+  const gap = 16, ctlH = 112;
+  const availW = grid.clientWidth || (innerWidth - 40);
+  const availH = innerHeight - head.getBoundingClientRect().height - 56;
+  let w = (availW - gap * (cols - 1)) / cols;
+  if(!narrow) w = Math.min(w, ((availH - gap * (rows - 1)) / rows - ctlH) * 16 / 9);
+  w = Math.max(200, Math.floor(w));
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', ' + w + 'px)';
+}
+/* 映像のレイヤーを、セルの枠の位置へ重ねる */
+function placeSyncLayers(){
+  KEYS.forEach(k => {
+    const layer = document.getElementById('layer-' + k);
+    if(!syncOpen){ layer.style.cssText = ''; return; }
+    const cell = document.querySelector('.syncCell[data-sk="' + k + '"]');
+    if(!cell || cell.hidden){ layer.style.cssText = 'display:none'; return; }
+    const r = cell.querySelector('.syncVideo').getBoundingClientRect();
+    const css = 'inset:auto;left:' + r.left + 'px;top:' + r.top + 'px;width:'
+              + r.width + 'px;height:' + r.height + 'px';
+    if(layer.style.cssText !== css) layer.style.cssText = css;
+  });
+}
+
+function renderSync(){
+  if(!syncOpen) return;
+  syncTick();
+  const keys = syncTargets();
+  const lead = syncLeaders(keys);
+  const now = performance.now();
+  let shapeChanged = false;
+  KEYS.forEach(k => {
+    const cell = document.querySelector('.syncCell[data-sk="' + k + '"]');
+    const has = keys.includes(k);
+    if(cell.hidden === has){ cell.hidden = !has; shapeChanged = true; }
+    if(!has) return;
+    const canSeek = seekable(k);
+    const archive = isArchive(k);
+    const cur = playerTime(k);
+    const bar = cell.querySelector('.syncBar');
+
+    // シーク直後はプレーヤーの実測がまだ追いついていない。要求した位置で描く
+    const hold = syncHold[k];
+    let shownPos = cur;
+    if(hold){
+      if(now - hold.wall > SYNC_HOLD_MS || Math.abs(cur - hold.t) < 0.3) syncHold[k] = null;
+      else shownPos = hold.t + (syncPaused[k] ? 0 : (now - hold.wall) / 1000 * (actualRate() || 1));
+    }
+    let rel = shownPos - syncCenter(k);
+    if(k !== syncDrag && !syncHold[k] && Math.abs(rel) > SYNC_RECENTER){
+      syncAnchor[k] += rel;      // 端まで寄った。このバーだけ中央へ戻す
+      rel = 0;
+    }
+    if(k !== syncDrag) bar.value = String(Math.max(-SYNC_HALF, Math.min(SYNC_HALF, rel)));
+    bar.disabled = !canSeek;
+    // ライブで LIVE端より先は行けない範囲。赤く塗って見せる
+    let limitPct = 100;
+    if(!archive){
+      const edge = liveEdge(k);
+      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) + SYNC_HALF) / (2 * SYNC_HALF) * 100));
+    }
+    bar.style.background = limitPct >= 100 ? '' :
+      'linear-gradient(to right, #2b3340 0%, #2b3340 ' + limitPct + '%, rgba(229,72,77,.45) '
+      + limitPct + '%, rgba(229,72,77,.45) 100%)';
+
+    cell.classList.toggle('paused', syncPaused[k]);
+    const play = cell.querySelector('.syncPlay');
+    play.disabled = !canSeek;
+    play.title = !canSeek
+      ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、止めたり動かしたりできません'
+      : (syncPaused[k] ? SRC_LABEL[k] + ' を流す' : SRC_LABEL[k] + ' を止める');
+    play.setAttribute('aria-label', play.title);
+    cell.querySelectorAll('[data-sstep]').forEach(b => b.disabled = !canSeek);
+
+    // 位置の読み。ライブは LIVE からの遅れ、アーカイブは経過 / 全体
+    const posEl = cell.querySelector('.syncPos');
+    if(archive){
+      const end = archiveEnd(k);
+      posEl.textContent = fmt(shownPos) + (end > 0 ? ' / ' + fmt(end) : '');
+    }else{
+      const delay = liveEdge(k) - shownPos;
+      posEl.textContent = delay < LIVE_EPS ? 'LIVE' : 'LIVE − ' + fmt(delay);
+    }
+
+    // 基準（いちばん進んでいる映像）との差。同じ種類が2本以上あるときだけ出す
+    const group = archive ? lead.archives : lead.lives;
+    const leader = archive ? lead.archive : lead.live;
+    const diffEl = cell.querySelector('.syncDiff');
+    diffEl.classList.toggle('lead', group.length > 1 && k === leader);
+    if(group.length < 2 || !leader) diffEl.textContent = '';
+    else if(k === leader) diffEl.textContent = archive ? '基準' : 'LIVE にする';
+    else diffEl.textContent = fmtDiff(syncAhead(k) - syncAhead(leader));
+  });
+  if(shapeChanged) layoutSync();
+  placeSyncLayers();
+}
+
+function openSyncPanel(){
+  if(syncOpen) return;
+  const keys = syncTargets();
+  if(keys.length < 2){ setStatusLine('映像が2本以上再生されていないと合わせられません'); return; }
+  toggleMore(false);
+  toggleHelp(false);
+  closeSwapMenu(false);
+  syncOpen = true;
+  syncDrag = null;
+  syncClock = 0;
+  syncClockWall = performance.now();
+  transportSeq++;                // LIVE 復帰などの後処理が画面の操作を踏まないように
+  KEYS.forEach(k => {
+    syncHold[k] = null;
+    const cur = playerTime(k);
+    syncAnchor[k] = cur === null ? 0 : cur;
+    syncPaused[k] = stateOf[k] === ST.PAUSED;
+    // ズレは完了のときに作り直す。残しておくと、画面で LIVE端へ寄せた映像を
+    // 突き合わせ処理が「trim ぶん先に LIVE端がある」と読み、推定が狂う
+    trim[k] = 0;
+    const el = document.getElementById('tr-' + k);
+    if(el) el.textContent = '0.0';
+  });
+  document.body.classList.add('syncMode');
+  document.getElementById('syncPanel').hidden = false;
+  applyEcoLayers();              // 並べた映像はどれも見ているので、画質を落とさない
+  renderSync();
+  layoutSync();
+  placeSyncLayers();
+  clearInterval(syncTimer);
+  syncTimer = setInterval(renderSync, 100);
+  document.getElementById('syncDone').focus({preventScroll:true});
+}
+function closeSyncPanel(){
+  if(!syncOpen) return;
+  syncOpen = false;
+  syncDrag = null;
+  clearInterval(syncTimer);
+  syncTimer = null;
+  document.body.classList.remove('syncMode');
+  document.getElementById('syncPanel').hidden = true;
+  placeSyncLayers();             // 元の重ね方へ戻す
+  applyEcoLayers();
+  reclaimFocus();
+  showChrome();
+}
+/* 完了。画面で揃えた差を、いつもの表示でのズレとして保つ */
+function finishSync(){
+  if(!syncOpen) return;
+  syncTick();
+  const keys = syncTargets();
+  const lead = syncLeaders(keys);
+  transportSeq++;
+  const applied = [];
+
+  // ライブ: 基準を LIVE端へ送る。全員を同じだけ進めるので、揃えた差はそのまま残る
+  if(lead.live){
+    const L = lead.live;
+    const aheadL = syncAhead(L);
+    const shift = seekable(L) ? Math.max(0, -aheadL) : 0;
+    lead.lives.forEach(k => {
+      const cur = playerTime(k);
+      if(!seekable(k)){ trim[k] = 0; return; }
+      trim[k] = k === L ? 0 : Math.min(0, syncAhead(k) - aheadL);
+      if(shift > 0.05){ try{ players[k].seekTo(cur + shift, true); }catch(e){} }
+      if(k !== L && trim[k] < -0.05) applied.push(SRC_LABEL[k] + ' ' + fmtDiff(trim[k]));
+    });
+    targetOffset = 0;
+  }
+  // アーカイブ: 位置はそのまま。まとめてシークで差を保つ
+  lead.archives.forEach(k => {
+    trim[k] = 0;
+    if(lead.archive && k !== lead.archive){
+      const d = syncAhead(k) - syncAhead(lead.archive);
+      if(d < -0.05) applied.push(SRC_LABEL[k] + ' ' + fmtDiff(d));
+    }
+  });
+  offsetIntent = lead.archives.length >= 2;
+  groupSeek = true;              // 以後は差を保ったまま一緒に動かす
+  KEYS.forEach(k => {
+    const el = document.getElementById('tr-' + k);
+    if(el) el.textContent = trim[k].toFixed(1);
+  });
+
+  // 止めていた映像も流す。止めていたぶんの差は、位置を採った時点で決まっている
+  paused = false;
+  audioUnlocked = true;
+  applyAudio(audioKeys, true);
+  keys.forEach(k => { try{ players[k].playVideo(); }catch(e){} });
+  markCommand();
+  closeSyncPanel();
+  renderTransport();
+  setStatusLine(applied.length ? 'ズレを適用しました（' + applied.join(' / ') + '）'
+                               : 'ズレを適用しました（差はありません）');
+}
+
 /* スライダーの幅 = さかのぼれる長さの目安。配信開始からの経過（= LIVE端）を
    使い、巻き戻せる配信のうちいちばん短いものに合わせる。2時間で頭打ち。
    アーカイブだけを見ているときは頭打ちにしない。2時間の上限はライブで
@@ -1778,6 +2148,11 @@ document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click'
 }));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
+document.getElementById('syncOpenBtn').addEventListener('click', openSyncPanel);
+document.getElementById('syncDone').addEventListener('click', finishSync);
+buildSyncCells();
+window.addEventListener('resize', () => { if(syncOpen){ layoutSync(); placeSyncLayers(); } });
+document.getElementById('syncPanel').addEventListener('scroll', placeSyncLayers, {passive:true});
 
 document.getElementById('vol').addEventListener('input', function(){
   // unmute() は renderVolume() でバーを描き直すので、値は先に控えておく
@@ -1832,6 +2207,12 @@ window.addEventListener('keydown', e => {
   if(e.target.tagName === 'INPUT') return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;   // ブラウザのショートカットを優先
   if(e.key === 'F5') return;
+  // ズレ微調整の画面では、裏の操作（音声・シーク・LIVE など）を動かさない。
+  // フォーカスしているボタンの Space / Enter は、ブラウザの既定どおり効く
+  if(syncOpen){
+    if(e.key.toLowerCase() === 'f'){ e.preventDefault(); toggleFs(); }
+    return;
+  }
 
   if(e.key === 'Escape'){ toggleHelp(false); return; }
   if(e.key === '?' || e.key === '/'){ e.preventDefault(); toggleHelp(); return; }
