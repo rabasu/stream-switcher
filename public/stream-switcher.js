@@ -124,6 +124,7 @@ const loadedId = {main:null, a:null, b:null};
    条件を満たしているので、最初から音を出せる。共有URLから開いたときは
    ジェスチャーが無いので、音を止めたまま始めてチップで解除してもらう */
 function build(ids, withSound){
+  closeSyncPanel();               // 読み込み直したら、並べていた画面は閉じる
   resetTransport();               // 遅れ・trim・実状態の記録を持ち越さない
   audioUnlocked = !!withSound;
   resumeEco();                    // 省帯域の一時解除は持ち越さない
@@ -239,7 +240,8 @@ let ecoResumeTimer = null;
 
 function ecoActive(){ return ecoMode && !ecoSuspended; }
 function applyEcoLayers(){
-  const on = ecoActive();
+  // ズレ微調整の画面では並べた映像をどれも見ている。どれも縮めない
+  const on = ecoActive() && !syncOpen;
   KEYS.forEach(x => document.getElementById('layer-'+x)
     .classList.toggle('eco', x !== videoSrc && on));
 }
@@ -353,6 +355,8 @@ function renderAvailability(){
   document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !players[b.dataset.aud]);
   // ズレ微調整も、無い配信の分は動かしても意味がない
   renderTrim();                   // ズレ微調整は「進める余地」でも押せるかが変わる
+  // 画面で合わせるのは、並べる相手がいるときだけ
+  document.getElementById('syncOpenBtn').disabled = loadedCount() < 2;
   // マルチ音声は混ぜる相手が要る
   document.getElementById('mix').disabled = loadedCount() < 2;
   if(loadedCount() < 2 && mixMode) mixMode = false;
@@ -755,6 +759,7 @@ function resetTransport(){
   clearTimeout(verifyTimer);
   verifyTimer = null;
   transportSeq++;
+  clearLinks();
   KEYS.forEach(k => {
     // ズレ調整は配信ごとの補正なので、別の配信を読み込んだら持ち越さない
     trim[k] = 0;
@@ -980,19 +985,120 @@ function seekPlayer(k){
   try{ p.seekTo(Math.max(0, edge - targetOffset + trim[k]), true); return true; }
   catch(e){ return false; }
 }
+/* ================================================================
+   映像どうしの差の保持（リンク）
+   ズレ微調整（trim）は「その配信の LIVE端からどれだけ下げるか」で持っている。
+   ところが本物のライブは、LIVE端を指してシークしても端ちょうどには着地せず、
+   セグメント1つぶん（1〜2秒）ほど手前に、しかも配信ごとに違う量だけ手前に
+   着地する。LIVE のたびに着地点を LIVE端とみなして trim を当て直すと、
+   着地の差がそのまま映像どうしのずれになる（表示の trim は変わらないので、
+   画面からは気付けない。実機で報告）。
+
+   そこで、合わせた関係を「基準の配信との再生位置の差」でも持つ。ライブの
+   再生位置は配信ごとに配信開始からの秒数で、両方を流しているあいだは差が
+   一定のまま変わらない。シーク・LIVE・再開のあと、落ち着いてから実測し、
+   差が崩れていれば基準に合わせて戻す。LIVE端の推定を通さないので、
+   着地の揺れにも推定の誤差にも左右されない。
+   ================================================================ */
+const LINK_TOL = 0.25;         // これ以上ずれていたら合わせ直す(秒)
+/* 差を保っているあいだの LIVE は、LIVE端の推定よりこれだけ手前を目標にする(秒)。
+   LIVE端ちょうど（やその先）を指すと、プレーヤーが配信ごとに違う量だけ手前へ
+   着地させ、揃えた差が崩れる。推定が少し上振れしていても端に当たらないよう、
+   わずかに手前を狙う。大きくすると LIVE なのに遅れて見えるので小さく保つ */
+const LIVE_MARGIN = 0.5;
+let linkRef = null;            // 基準の配信。null = 関係を持っていない
+const linkGap = {main:null, a:null, b:null};   // 再生位置 - 基準の再生位置
+function clearLinks(){
+  linkRef = null;
+  KEYS.forEach(k => { linkGap[k] = null; });
+}
+/* いまの再生位置の差を、保つべき関係として記録する */
+function captureLinks(ref){
+  const r = playerTime(ref);
+  if(r === null){ clearLinks(); return; }
+  linkRef = ref;
+  KEYS.forEach(k => {
+    const c = (k !== ref && players[k] && ready[k] && !isArchive(k)) ? playerTime(k) : null;
+    linkGap[k] = c === null ? null : c - r;
+  });
+}
+/* 差を保っている配信か（基準を含む） */
+function isLinked(k){ return !!linkRef && (k === linkRef || linkGap[k] !== null); }
+/* 差を保っている配信の全部（基準 + 合わせ直す対象） */
+function linkGroup(){ return linkRef && players[linkRef] ? [linkRef].concat(linkedKeys()) : []; }
+/* 差を保ったまま LIVE へ寄せるとき、全員を進める量。基準の配信が
+   「LIVE端の推定 − LIVE_MARGIN」に来るだけ進める（いちばん進んでいる配信が
+   そこへ来るよう、基準自身のズレも考える）。全員を同じ量だけ相対シークするので、
+   映像どうしの差は崩れない。「完了」と LIVE ボタンで共通に使う */
+function linkedLiveShift(ref, group){
+  if(!ref || !seekable(ref) || isArchive(ref)) return 0;   // 巻き戻せない基準は元から LIVE端
+  const cur = playerTime(ref), edge = liveEdge(ref);
+  if(cur === null || edge <= 0) return 0;
+  const lead = group.reduce((m, k) => Math.max(m, trim[k]), trim[ref]);
+  return Math.max(0, edge - LIVE_MARGIN + (trim[ref] - lead) - cur);
+}
+/* 合わせ直す対象。基準以外の、動かせるライブ */
+function linkedKeys(){
+  if(!linkRef || !players[linkRef]) return [];
+  return KEYS.filter(k => k !== linkRef && linkGap[k] !== null && players[k] && ready[k]
+                          && seekable(k) && !isArchive(k));
+}
+/* 落ち着いてから、記録した差どおりか確かめて直す。間に別の操作が入ったらやめる。
+   直したあとの位置も確かめる（直したシーク自体が少しずれることがある） */
+function enforceLinks(seq, after){
+  if(!linkedKeys().length){ if(after) setTimeout(() => { if(seq === transportSeq) after(); }, SETTLE_MS); return; }
+  let waits = 0, rounds = 0;
+  const run = () => {
+    if(seq !== transportSeq || !linkRef) return;
+    if(anyState(ST.BUFFERING) && ++waits < 10){ setTimeout(run, 500); return; }
+    const r = playerTime(linkRef);
+    if(r === null) return;
+    let moved = false;
+    linkedKeys().forEach(k => {
+      const c = playerTime(k);
+      if(c === null) return;
+      const want = r + linkGap[k];
+      if(Math.abs(c - want) > LINK_TOL){
+        try{ players[k].seekTo(Math.max(0, want), true); moved = true; }catch(e){}
+      }
+    });
+    if(moved){
+      markCommand();
+      if(++rounds < 3){ setTimeout(run, SETTLE_MS); return; }
+    }
+    if(after) after();
+    renderTransport();
+  };
+  setTimeout(run, SETTLE_MS);
+}
+/* まとめてシーク OFF で1本だけ動かしたときは、関係そのものを変えにいっている。
+   落ち着いてから、新しい差を記録し直す */
+function relinkAfter(seq){
+  if(!linkRef) return;
+  let waits = 0;
+  const run = () => {
+    if(seq !== transportSeq || !linkRef) return;
+    if(anyState(ST.BUFFERING) && ++waits < 10){ setTimeout(run, 500); return; }
+    captureLinks(linkRef);
+  };
+  setTimeout(run, SETTLE_MS);
+}
+/* シーク系の操作のあと。まとめてなら差を保ち、1本だけなら差を記録し直す */
+function afterSeek(seq){ groupSeek ? enforceLinks(seq) : relinkAfter(seq); }
+
 function seekAll(){
-  transportSeq++;
+  const seq = ++transportSeq;
   let ok = false;
   seekKeys().forEach(k => { if(seekPlayer(k)) ok = true; });
   const skipped = groupSeek ? noRewindKeys() : [];
   if(targetOffset > 0 && skipped.length) setStatusLine(noRewindMessage(skipped));
-  if(ok){ markCommand(); scheduleSeekVerify(); }
+  if(ok){ markCommand(); scheduleSeekVerify(); afterSeek(seq); }
   return ok;
 }
 /* 相対シーク（delta>0 = 過去へ）。LIVE端の推定を通さず再生位置から直接
    動かすので、推定がずれていても要求どおりの量だけ確実に動く */
 function seekRelative(delta){
-  transportSeq++;
+  const seq = ++transportSeq;
   if(!groupSeek) offsetIntent = true;
   let ok = false;
   seekKeys().forEach(k => {
@@ -1007,6 +1113,7 @@ function seekRelative(delta){
   targetOffset = Math.max(0, targetOffset + delta);
   markCommand();
   scheduleSeekVerify();
+  afterSeek(seq);
   renderTransport();
 }
 /* シークが本当に効いたかを実測で確かめる。DVR の範囲外などでクランプされたら、
@@ -1037,7 +1144,10 @@ function togglePlay(){
     if(!p || !ready[k]) return;
     try{ paused ? p.pauseVideo() : p.playVideo(); }catch(e){}
   });
-  if(!paused) applyAudio(audioKeys, true);
+  if(!paused){
+    applyAudio(audioKeys, true);
+    enforceLinks(++transportSeq);   // 再開の立ち上がりは配信ごとにばらつく
+  }
   markCommand();
   renderTransport();
   showCenter();
@@ -1052,11 +1162,21 @@ function goLive(){
   paused = false;
   clearTimeout(verifyTimer);
   verifyTimer = null;
+  // 差を保っている配信は LIVE端へ飛ばさない。基準だけを LIVE端へ送り、他は
+  // 基準が進むはずの量だけ同じように進める（着地のずれは後で直す）
+  // 基準も含めて LIVE端ちょうどへは飛ばさない。全員を同じ量だけ進め、基準を
+  // LIVE端の少し手前（LIVE_MARGIN）に置く。「完了」と同じ動かし方
+  const linked = linkGroup();
+  const shift = linkedLiveShift(linkRef, linked);
   KEYS.forEach(k => {
     const p = players[k];
     const cur = playerTime(k);
     // アーカイブに LIVE端は無い。終端へ飛ばしても意味が無いので触らない
     if(!p || cur === null || isArchive(k)) return;
+    if(linked.includes(k)){
+      if(shift > 0.05 && seekable(k)){ try{ p.seekTo(cur + shift, true); }catch(e){} }
+      return;
+    }
     try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){}
   });
   applyAudio(audioKeys, true);
@@ -1070,7 +1190,7 @@ function goLive(){
     const now = performance.now();
     KEYS.forEach(k => {
       const cur = playerTime(k);
-      if(cur === null || cur <= 0 || isArchive(k)) return;
+      if(cur === null || cur <= 0 || isArchive(k) || linked.includes(k)) return;
       edgeBase[k] = cur;
       edgeWall[k] = now;
       if(trim[k] < 0) seekPlayer(k);
@@ -1078,6 +1198,10 @@ function goLive(){
     markCommand();
     renderTransport();
   }, SETTLE_MS);
+  // 相対シークなので通常は崩れない。崩れていたときだけ合わせ直す（保険）。
+  // 差を保っている配信の LIVE端の推定は貼り直さない（LIVE_MARGIN ぶん手前を
+  // LIVE端と記録すると、押すたびに推定が下がっていく）
+  enforceLinks(seq);
   renderTransport();
 }
 /* ライブは再生位置が入るまで少し掛かる。取れるまで LIVE へ同期を再試行。
@@ -1174,9 +1298,11 @@ function adjustTrim(k, d){
   // 押せない向きは動かさない（無効化と同じ判定。表示だけ進むのを防ぐ）
   if(!seekable(k)) return;
   if(d > 0 && trimHeadroom(k) < d - TRIM_EPS) return;
-  transportSeq++;
+  const seq = ++transportSeq;
+  const before = trim[k];
   trim[k] = Math.round((trim[k] + d) * 10) / 10;
   document.getElementById('tr-'+k).textContent = trim[k].toFixed(1);
+  if(!isArchive(k)) shiftLink(k, trim[k] - before, seq);
   if(isArchive(k)){
     // アーカイブは共通軸を通さず、その場から要求どおりの量だけ動かす
     offsetIntent = true;
@@ -1185,9 +1311,434 @@ function adjustTrim(k, d){
   } else if(seekPlayer(k)) markCommand();
   renderTrim();
 }
+/* ± ボタンで1本だけ動かした。保つべき差も同じだけ動かす。まだ差を持って
+   いなければ、いまの位置関係を記録してから動かす（基準はいちばん進んでいる配信） */
+function shiftLink(k, d, seq){
+  const lives = KEYS.filter(x => players[x] && ready[x] && !isArchive(x) && playerTime(x) !== null);
+  if(lives.length < 2) return;
+  if(!linkRef || !lives.includes(linkRef)){
+    const others = lives.filter(x => x !== k);
+    const ref = others.reduce((m, x) => trim[x] > trim[m] ? x : m, others[0]);
+    captureLinks(ref);
+  }
+  if(k === linkRef) KEYS.forEach(x => { if(linkGap[x] !== null) linkGap[x] -= d; });
+  else if(linkGap[k] !== null) linkGap[k] += d;
+  enforceLinks(seq);
+}
 function fmt(sec){
   sec = Math.max(0, Math.round(sec));
   return Math.floor(sec/60) + ':' + String(sec%60).padStart(2,'0');
+}
+
+/* ================================================================
+   ズレ微調整の画面
+   ±0.5秒のボタンだけでは、何秒ずれているかを映像を見比べながら探る
+   ことになり、合わせるのに時間が掛かる。読み込んだ映像を並べて同時に
+   見せ、1本ずつ止めたり前後させたりして場面を揃えてもらう。
+
+   映像は #stage のレイヤーを各セルの枠（.syncVideo）の上へ動かして
+   見せる。iframe を DOM で移すと読み込み直しになるので、位置だけ変える。
+
+   バーは「再生位置の設定」に特化させる。全幅で60秒（前後30秒）に絞り、
+   手で細かく合わせやすくする。つまみは再生と一緒に進む時計に対する
+   位置を出すので、流しているあいだは止まって見え、止めた映像だけが左へ
+   流れていく（＝遅れていく）。どれだけずらしたかがそのまま絵になる。
+   端まで寄ったら、その映像のバーだけ中央へ戻す（差の読みは右上の数字）。
+
+   差は「開いたときの進み具合 + 画面で動かした量」で数える。画面で動かした
+   量はこの時計に対する位置そのもので、LIVE端の推定を通さない。推定は
+   突き合わせ処理が「LIVE端から LIVE_EPS 以内なら LIVE端」と貼り直すので、
+   推定経由で数えると数秒の差がそこへ吸われて消える（実機で、2秒止めて
+   合わせたのに「差はありません」になった）。開いているあいだは貼り直しも
+   止める（reconcileTransport）。
+
+   完了で元の表示へ戻し、ズレを適用する。ライブはいちばん進んでいる
+   （LIVE に近い）映像を LIVE端へ送り、全員を同じだけ進める。他の映像は
+   その差をズレ微調整（trim）として持つので、以後のシークや LIVE でも
+   差を保ったまま動く。アーカイブは共通の軸が無いので位置をそのまま残し、
+   まとめてシークでズレを保つ（原則5）。
+   ================================================================ */
+const SYNC_HALF = 30;          // バーの片側の幅(秒)。全幅で60秒
+const SYNC_RECENTER = 27;      // つまみがここまで端へ寄ったら、そのバーを中央へ戻す
+const SYNC_HOLD_MS = 700;      // シーク直後、実測が追いつくまで要求した位置で描く
+const SYNC_STEPS = [-5, -1, -0.1, 0.1, 1, 5];
+let syncOpen = false;
+let syncTimer = null;
+let syncDrag = null;           // バーを掴んでいるあいだ、その配信
+let syncClock = 0;             // 画面を開いてから時計が進んだ秒数
+let syncClockWall = 0;
+const syncAnchor = {main:0, a:0, b:0};     // バーの中央 = syncAnchor + syncClock
+/* 差を数える基準。開いたときの位置（syncOrigin）と、そのときの進み具合（syncBase）。
+   syncAnchor はバーを中央へ戻すたびに動くが、こちらは開いているあいだ動かさない */
+const syncOrigin = {main:0, a:0, b:0};
+const syncBase = {main:0, a:0, b:0};
+const syncPaused = {main:false, a:false, b:false};
+const syncHold = {main:null, a:null, b:null};
+
+function syncTargets(){ return KEYS.filter(k => players[k] && ready[k] && playerTime(k) !== null); }
+/* 時計はどれか1本でも流れているあいだだけ進む。全部止めればつまみも止まる */
+function syncTick(){
+  const now = performance.now();
+  if(syncTargets().some(k => !syncPaused[k]))
+    syncClock += (now - syncClockWall) / 1000 * (actualRate() || 1);
+  syncClockWall = now;
+}
+function syncCenter(k){ return syncAnchor[k] + syncClock; }
+/* 開いたときの進み具合。ライブは LIVE端からの位置（trim は混ぜない）。
+   それまでに付いていたズレはここに入る。アーカイブは開始時刻が動画ごとに
+   違い、位置を比べても意味が無いので 0（＝画面で動かした量だけを数える） */
+function syncAheadAtOpen(k){
+  const cur = playerTime(k);
+  if(cur === null || isArchive(k)) return 0;
+  const edge = liveEdge(k);
+  return edge > 0 ? cur - edge : 0;
+}
+/* 進み具合 = 開いたときの進み具合 + 画面で動かした量（時計に対する位置）。
+   比べられるのは同じ種類どうしだけ */
+function syncAhead(k, pos){
+  const cur = pos !== undefined ? pos : playerTime(k);
+  if(cur === null) return null;
+  return syncBase[k] + (cur - (syncOrigin[k] + syncClock));
+}
+/* いちばん進んでいる映像。巻き戻せないライブは LIVE端から動かせないので、
+   あればそれが基準になる */
+function syncLeaders(keys){
+  const pick = list => {
+    const fixed = list.find(k => !seekable(k));
+    if(fixed) return fixed;
+    let best = null, bestV = -Infinity;
+    list.forEach(k => { const v = syncAhead(k); if(v !== null && v > bestV){ best = k; bestV = v; } });
+    return best;
+  };
+  const lives = keys.filter(k => !isArchive(k));
+  const archives = keys.filter(k => isArchive(k));
+  return {live: pick(lives), archive: pick(archives), lives, archives};
+}
+function fmtDiff(sec){
+  if(Math.abs(sec) < 0.05) return '±0.0秒';
+  return (sec < 0 ? '−' : '+') + Math.abs(sec).toFixed(1) + '秒';
+}
+
+function buildSyncCells(){
+  const grid = document.getElementById('syncGrid');
+  KEYS.forEach(k => {
+    const cell = document.createElement('div');
+    cell.className = 'syncCell';
+    cell.dataset.sk = k;
+    cell.hidden = true;
+    cell.style.setProperty('--sColor', SRC_COLOR[k]);
+
+    const video = document.createElement('div');
+    video.className = 'syncVideo';
+    video.title = SRC_LABEL[k] + ' を止める / 流す';
+    video.addEventListener('click', () => toggleSyncPlay(k));
+
+    const ctl = document.createElement('div');
+    ctl.className = 'syncCtl';
+    const name = document.createElement('span');
+    name.className = 'syncName';
+    name.textContent = SRC_LABEL[k];
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'syncPlay';
+    play.innerHTML =
+      '<svg class="iconPause" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' +
+      '<svg class="iconPlay" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
+    play.addEventListener('click', () => toggleSyncPlay(k));
+    const pos = document.createElement('span');
+    pos.className = 'syncPos';
+    const diff = document.createElement('span');
+    diff.className = 'syncDiff';
+    ctl.append(name, play, pos, diff);
+
+    const bar = document.createElement('input');
+    bar.type = 'range';
+    bar.className = 'syncBar';
+    bar.min = String(-SYNC_HALF);
+    bar.max = String(SYNC_HALF);
+    bar.step = '0.1';
+    bar.value = '0';
+    bar.setAttribute('aria-label', SRC_LABEL[k] + ' の再生位置（前後' + SYNC_HALF + '秒）');
+    bar.addEventListener('input', () => { syncDrag = k; renderSync(); });
+    bar.addEventListener('change', () => {
+      syncDrag = null;
+      syncSeek(k, syncCenter(k) + parseFloat(bar.value));
+    });
+    const ticks = document.createElement('div');
+    ticks.className = 'syncTicks';
+    ['−30秒', '−15', '0', '+15', '+30秒'].forEach(t => {
+      const s = document.createElement('span');
+      s.textContent = t;
+      ticks.appendChild(s);
+    });
+
+    const steps = document.createElement('div');
+    steps.className = 'syncSteps';
+    SYNC_STEPS.forEach(d => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.sstep = String(d);
+      b.textContent = (d < 0 ? '−' : '+') + Math.abs(d) + 's';
+      b.title = SRC_LABEL[k] + ' を ' + Math.abs(d) + '秒 ' + (d < 0 ? '戻す' : '進める');
+      b.addEventListener('click', () => {
+        const cur = playerTime(k);
+        if(cur !== null) syncSeek(k, cur + d);
+      });
+      steps.appendChild(b);
+    });
+
+    cell.append(video, ctl, bar, ticks, steps);
+    grid.appendChild(cell);
+  });
+}
+
+function syncSeek(k, t){
+  const p = players[k];
+  if(!p || !seekable(k)) return;
+  // ライブは LIVE端より先へ行けない。要求をそこで止めておくと、つまみが
+  // 行けない位置に一瞬だけ描かれることもない
+  if(!isArchive(k)){ const edge = liveEdge(k); if(edge > 0) t = Math.min(t, edge); }
+  else{ const end = archiveEnd(k); if(end > 0) t = Math.min(t, end); }
+  t = Math.max(0, t);
+  transportSeq++;
+  try{ p.seekTo(t, true); }catch(e){ return; }
+  syncHold[k] = {t: t, wall: performance.now()};
+  markCommand();
+  renderSync();
+}
+function toggleSyncPlay(k){
+  const p = players[k];
+  if(!p || !ready[k] || !seekable(k)) return;
+  syncTick();                    // 止める / 流す前までの時計を確定させる
+  syncPaused[k] = !syncPaused[k];
+  try{ syncPaused[k] ? p.pauseVideo() : p.playVideo(); }catch(e){}
+  if(!syncPaused[k]) audioUnlocked = true;
+  markCommand();
+  renderSync();
+}
+
+/* グリッドの寸法。映像は 16:9 のまま、画面の高さに収まる大きさにする */
+function layoutSync(){
+  const n = syncTargets().length;
+  const grid = document.getElementById('syncGrid');
+  const head = document.querySelector('#syncPanel .syncHead');
+  const narrow = innerWidth <= 700;
+  const cols = narrow ? 1 : (n >= 3 && innerWidth < 1100 ? 2 : Math.max(1, n));
+  const rows = Math.ceil(n / cols);
+  const gap = 16, ctlH = 112;
+  const availW = grid.clientWidth || (innerWidth - 40);
+  const availH = innerHeight - head.getBoundingClientRect().height - 56;
+  let w = (availW - gap * (cols - 1)) / cols;
+  if(!narrow) w = Math.min(w, ((availH - gap * (rows - 1)) / rows - ctlH) * 16 / 9);
+  w = Math.max(200, Math.floor(w));
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', ' + w + 'px)';
+}
+/* 映像のレイヤーを、セルの枠の位置へ重ねる */
+function placeSyncLayers(){
+  KEYS.forEach(k => {
+    const layer = document.getElementById('layer-' + k);
+    if(!syncOpen){ layer.style.cssText = ''; return; }
+    const cell = document.querySelector('.syncCell[data-sk="' + k + '"]');
+    if(!cell || cell.hidden){ layer.style.cssText = 'display:none'; return; }
+    const r = cell.querySelector('.syncVideo').getBoundingClientRect();
+    const css = 'inset:auto;left:' + r.left + 'px;top:' + r.top + 'px;width:'
+              + r.width + 'px;height:' + r.height + 'px';
+    if(layer.style.cssText !== css) layer.style.cssText = css;
+  });
+}
+
+function renderSync(){
+  if(!syncOpen) return;
+  syncTick();
+  const keys = syncTargets();
+  const lead = syncLeaders(keys);
+  const now = performance.now();
+  let shapeChanged = false;
+  KEYS.forEach(k => {
+    const cell = document.querySelector('.syncCell[data-sk="' + k + '"]');
+    const has = keys.includes(k);
+    if(cell.hidden === has){ cell.hidden = !has; shapeChanged = true; }
+    if(!has) return;
+    const canSeek = seekable(k);
+    const archive = isArchive(k);
+    const cur = playerTime(k);
+    const bar = cell.querySelector('.syncBar');
+
+    // シーク直後はプレーヤーの実測がまだ追いついていない。要求した位置で描く
+    const hold = syncHold[k];
+    let shownPos = cur;
+    if(hold){
+      if(now - hold.wall > SYNC_HOLD_MS || Math.abs(cur - hold.t) < 0.3) syncHold[k] = null;
+      else shownPos = hold.t + (syncPaused[k] ? 0 : (now - hold.wall) / 1000 * (actualRate() || 1));
+    }
+    let rel = shownPos - syncCenter(k);
+    if(k !== syncDrag && !syncHold[k] && Math.abs(rel) > SYNC_RECENTER){
+      syncAnchor[k] += rel;      // 端まで寄った。このバーだけ中央へ戻す
+      rel = 0;
+    }
+    if(k !== syncDrag) bar.value = String(Math.max(-SYNC_HALF, Math.min(SYNC_HALF, rel)));
+    bar.disabled = !canSeek;
+    // ライブで LIVE端より先は行けない範囲。赤く塗って見せる
+    let limitPct = 100;
+    if(!archive){
+      const edge = liveEdge(k);
+      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) + SYNC_HALF) / (2 * SYNC_HALF) * 100));
+    }
+    bar.style.background = limitPct >= 100 ? '' :
+      'linear-gradient(to right, #2b3340 0%, #2b3340 ' + limitPct + '%, rgba(229,72,77,.45) '
+      + limitPct + '%, rgba(229,72,77,.45) 100%)';
+
+    cell.classList.toggle('paused', syncPaused[k]);
+    const play = cell.querySelector('.syncPlay');
+    play.disabled = !canSeek;
+    play.title = !canSeek
+      ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、止めたり動かしたりできません'
+      : (syncPaused[k] ? SRC_LABEL[k] + ' を流す' : SRC_LABEL[k] + ' を止める');
+    play.setAttribute('aria-label', play.title);
+    cell.querySelectorAll('[data-sstep]').forEach(b => b.disabled = !canSeek);
+
+    // 位置の読み。ライブは LIVE からの遅れ、アーカイブは経過 / 全体
+    const posEl = cell.querySelector('.syncPos');
+    if(archive){
+      const end = archiveEnd(k);
+      posEl.textContent = fmt(shownPos) + (end > 0 ? ' / ' + fmt(end) : '');
+    }else{
+      const delay = liveEdge(k) - shownPos;
+      posEl.textContent = delay < LIVE_EPS ? 'LIVE' : 'LIVE − ' + fmt(delay);
+    }
+
+    // 基準（いちばん進んでいる映像）との差。同じ種類が2本以上あるときだけ出す
+    const group = archive ? lead.archives : lead.lives;
+    const leader = archive ? lead.archive : lead.live;
+    const diffEl = cell.querySelector('.syncDiff');
+    diffEl.classList.toggle('lead', group.length > 1 && k === leader);
+    if(group.length < 2 || !leader) diffEl.textContent = '';
+    else if(k === leader) diffEl.textContent = archive ? '基準' : 'LIVE にする';
+    else diffEl.textContent = fmtDiff(syncAhead(k, shownPos) - syncAhead(leader));
+  });
+  if(shapeChanged) layoutSync();
+  placeSyncLayers();
+}
+
+function openSyncPanel(){
+  if(syncOpen) return;
+  const keys = syncTargets();
+  if(keys.length < 2){ setStatusLine('映像が2本以上再生されていないと合わせられません'); return; }
+  toggleMore(false);
+  toggleHelp(false);
+  closeSwapMenu(false);
+  syncOpen = true;
+  syncDrag = null;
+  syncClock = 0;
+  syncClockWall = performance.now();
+  transportSeq++;                // LIVE 復帰などの後処理が画面の操作を踏まないように
+  KEYS.forEach(k => {
+    syncHold[k] = null;
+    const cur = playerTime(k);
+    syncOrigin[k] = syncAnchor[k] = cur === null ? 0 : cur;
+    syncBase[k] = syncAheadAtOpen(k);
+    syncPaused[k] = stateOf[k] === ST.PAUSED;
+  });
+  // 差を保っている配信は、LIVE端の推定ではなく記録した差から読む。推定は
+  // 着地の揺れを含むので、設定したズレどおりに見えなくなる。
+  // 読み = 設定したズレ（trim の差）+ 記録した差からの実際のずれ
+  if(linkRef && keys.includes(linkRef) && !isArchive(linkRef)){
+    const r = playerTime(linkRef);
+    linkedKeys().filter(k => keys.includes(k)).forEach(k => {
+      syncBase[k] = syncBase[linkRef] + (trim[k] - trim[linkRef])
+                  + ((playerTime(k) - r) - linkGap[k]);
+    });
+  }
+  // いま付いているズレを、つまみの位置で見せる。いちばん進んでいる映像を
+  // 中央に置き、他はその差だけ左へ。バーに収まらない差は中央のまま（数字で読む）
+  const lead = syncLeaders(keys);
+  [[lead.lives, lead.live]].forEach(([group, leader]) => {
+    if(!leader || group.length < 2) return;
+    group.forEach(k => {
+      const d = syncBase[k] - syncBase[leader];
+      if(d < 0 && d > -SYNC_RECENTER) syncAnchor[k] -= d;
+    });
+  });
+  document.body.classList.add('syncMode');
+  document.getElementById('syncPanel').hidden = false;
+  applyEcoLayers();              // 並べた映像はどれも見ているので、画質を落とさない
+  renderSync();
+  layoutSync();
+  placeSyncLayers();
+  clearInterval(syncTimer);
+  syncTimer = setInterval(renderSync, 100);
+  document.getElementById('syncDone').focus({preventScroll:true});
+}
+function closeSyncPanel(){
+  if(!syncOpen) return;
+  syncOpen = false;
+  syncDrag = null;
+  clearInterval(syncTimer);
+  syncTimer = null;
+  document.body.classList.remove('syncMode');
+  document.getElementById('syncPanel').hidden = true;
+  placeSyncLayers();             // 元の重ね方へ戻す
+  applyEcoLayers();
+  reclaimFocus();
+  showChrome();
+}
+/* 完了。画面で揃えた差を、いつもの表示でのズレとして保つ */
+function finishSync(){
+  if(!syncOpen) return;
+  syncTick();
+  const keys = syncTargets();
+  const lead = syncLeaders(keys);
+  transportSeq++;
+  const applied = [];
+
+  // ライブ: 基準を LIVE端へ送る。全員を同じだけ進めるので、揃えた差はそのまま残る
+  const seq = transportSeq;
+  if(lead.live){
+    const L = lead.live;
+    // 揃えた位置関係を、そのまま保つべき差として記録する（動かす前に採る）
+    if(lead.lives.length >= 2) captureLinks(L); else clearLinks();
+    const aheadL = syncAhead(L);
+    // 差（trim）は画面で数えた値。LIVE へは全員を同じだけ進めて寄せるので
+    // （LIVE ボタンと共通の linkedLiveShift）、揃えた差はそのまま残る
+    lead.lives.forEach(k => {
+      if(!seekable(k)){ trim[k] = 0; return; }
+      trim[k] = k === L ? 0 : Math.min(0, syncAhead(k) - aheadL);
+      if(k !== L && trim[k] < -0.05) applied.push(SRC_LABEL[k] + ' ' + fmtDiff(trim[k]));
+    });
+    const shift = linkedLiveShift(L, lead.lives);
+    if(shift > 0.05) lead.lives.forEach(k => {
+      const cur = playerTime(k);
+      if(!seekable(k) || cur === null) return;
+      try{ players[k].seekTo(cur + shift, true); }catch(e){}
+    });
+    targetOffset = 0;
+  }
+  // アーカイブ: 位置はそのまま。まとめてシークで差を保つ
+  lead.archives.forEach(k => {
+    trim[k] = 0;
+    if(lead.archive && k !== lead.archive){
+      const d = syncAhead(k) - syncAhead(lead.archive);
+      if(d < -0.05) applied.push(SRC_LABEL[k] + ' ' + fmtDiff(d));
+    }
+  });
+  offsetIntent = lead.archives.length >= 2;
+  groupSeek = true;              // 以後は差を保ったまま一緒に動かす
+  KEYS.forEach(k => {
+    const el = document.getElementById('tr-' + k);
+    if(el) el.textContent = trim[k].toFixed(1);
+  });
+
+  // 止めていた映像も流す。止めていたぶんの差は、位置を採った時点で決まっている
+  paused = false;
+  audioUnlocked = true;
+  applyAudio(audioKeys, true);
+  keys.forEach(k => { try{ players[k].playVideo(); }catch(e){} });
+  markCommand();
+  if(lead.live) enforceLinks(seq);   // LIVE端への着地がずれても、揃えた差へ戻す
+  closeSyncPanel();
+  renderTransport();
+  setStatusLine(applied.length ? 'ズレを適用しました（' + applied.join(' / ') + '）'
+                               : 'ズレを適用しました（差はありません）');
 }
 
 /* スライダーの幅 = さかのぼれる長さの目安。配信開始からの経過（= LIVE端）を
@@ -1220,8 +1771,13 @@ function reconcileTransport(){
   // 見ている配信の実測で全配信を貼り直していたため、巻き戻せない MAIN が
   // LIVE端にいるのを見て、60秒戻った VC-A まで「LIVE端にいる」と記録し、
   // 以後 LIVE ボタンでも戻らなくなった（実機で再現）
-  if(!paused){
+  // ズレ微調整の画面を開いているあいだは貼り直さない。止めて合わせた数秒の
+  // 差が LIVE端の推定へ吸われ、完了のときに差が消えてしまう
+  if(!paused && !syncOpen){
     KEYS.forEach(k => {
+      // 差を保っている配信は、LIVE でも LIVE端の LIVE_MARGIN 手前にいる。
+      // そこを LIVE端と貼り直すと推定が下がり、LIVE を押すたびに遠のいていく
+      if(isLinked(k)) return;
       const m = measuredOffset(k);
       if(m !== null && m < LIVE_EPS) noteLiveEdge(k);
     });
@@ -1778,6 +2334,11 @@ document.querySelectorAll('[data-seek]').forEach(b => b.addEventListener('click'
 }));
 document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => setRate(parseFloat(b.dataset.rate))));
 document.querySelectorAll('[data-trim]').forEach(b => b.addEventListener('click', () => adjustTrim(b.dataset.trim, parseFloat(b.dataset.d))));
+document.getElementById('syncOpenBtn').addEventListener('click', openSyncPanel);
+document.getElementById('syncDone').addEventListener('click', finishSync);
+buildSyncCells();
+window.addEventListener('resize', () => { if(syncOpen){ layoutSync(); placeSyncLayers(); } });
+document.getElementById('syncPanel').addEventListener('scroll', placeSyncLayers, {passive:true});
 
 document.getElementById('vol').addEventListener('input', function(){
   // unmute() は renderVolume() でバーを描き直すので、値は先に控えておく
@@ -1832,6 +2393,12 @@ window.addEventListener('keydown', e => {
   if(e.target.tagName === 'INPUT') return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;   // ブラウザのショートカットを優先
   if(e.key === 'F5') return;
+  // ズレ微調整の画面では、裏の操作（音声・シーク・LIVE など）を動かさない。
+  // フォーカスしているボタンの Space / Enter は、ブラウザの既定どおり効く
+  if(syncOpen){
+    if(e.key.toLowerCase() === 'f'){ e.preventDefault(); toggleFs(); }
+    return;
+  }
 
   if(e.key === 'Escape'){ toggleHelp(false); return; }
   if(e.key === '?' || e.key === '/'){ e.preventDefault(); toggleHelp(); return; }

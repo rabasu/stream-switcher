@@ -271,6 +271,7 @@
         <span class="trim">MAIN<button data-trim="main" data-d="-0.5">−</button><var id="tr-main">0.0</var><button data-trim="main" data-d="0.5">+</button></span>
         <span class="trim">A<button data-trim="a" data-d="-0.5">−</button><var id="tr-a">0.0</var><button data-trim="a" data-d="0.5">+</button></span>
         <span class="trim">B<button data-trim="b" data-d="-0.5">−</button><var id="tr-b">0.0</var><button data-trim="b" data-d="0.5">+</button></span>
+        <button class="pill" id="syncOpenBtn" title="映像を並べて、ズレを見ながら合わせる">画面で合わせる</button>
       </div>
     </div>
     <div class="group">
@@ -285,6 +286,21 @@
 </div>
 </div>
 
+<!-- ズレ微調整の画面。読み込んだ映像を並べ、1本ずつ止めたりバーで前後させたり
+     して場面を揃える。映像そのものは #stage のレイヤーを各セルの枠の上へ
+     動かして見せる（iframe を DOM で移すと読み込み直しになるため）。
+     セルは JS が作る -->
+<div id="syncPanel" role="dialog" aria-modal="true" aria-labelledby="syncTitle" hidden>
+  <div class="syncHead">
+    <div class="syncHeadText">
+      <h2 id="syncTitle">ズレ微調整</h2>
+      <p>映像ごとに止めたり、バー（前後30秒）で動かしたりして場面を揃えてください。<b>完了</b>を押すと、いちばん進んでいる映像を LIVE にし、他はその差を保ったまま再生します。</p>
+    </div>
+    <button type="button" id="syncDone">完了</button>
+  </div>
+  <div id="syncGrid"></div>
+</div>
+
 <div id="help">
   <button class="close" id="helpclose" title="ヘルプを閉じる (?)" aria-label="ヘルプを閉じる"><svg class="btnIcon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
   <div class="inner">
@@ -297,7 +313,7 @@
       <tr><td>M</td><td>音量を 0 にする / 戻す。音声の選択はそのまま残るので、戻すと同じ配信が鳴ります（配信ごとの音量も保たれます）</td></tr>
       <tr><td>1 / 2 / 3</td><td>映像を MAIN / VC-A / VC-B に切り替える（音声は動きません）</td></tr>
       <tr><td>↑ ↓</td><td>今映している配信の音量を 5 ずつ増減（Shift併用で 1 ずつ）。音量は配信ごとに覚えるので、マルチ音声で実況とチームVCを混ぜるときに片方だけ下げられます</td></tr>
-      <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）。アーカイブ（配信済みの動画）を見ているときは SYNC になり、他の動画を今映している動画と同じ位置へ揃えます</td></tr>
+      <tr><td>L</td><td>LIVE の最先端に戻る。赤く点灯しているときも押せます（表示が LIVE でも数秒遅れていることがあります）。ズレ微調整で映像どうしの差を付けているあいだは、差を保ったまま全部を同じだけ進め、いちばん進んでいる映像を最先端の 0.5秒手前に置きます。アーカイブ（配信済みの動画）を見ているときは SYNC になり、他の動画を今映している動画と同じ位置へ揃えます</td></tr>
 
       <tr><th colspan="2">見返す</th></tr>
       <tr><td>K</td><td>3本まとめて一時停止 / 再開。操作バー左の ⏸ ボタン、映像にカーソルを置くと中央に出るボタンでも同じです</td></tr>
@@ -309,6 +325,7 @@
       <tr><td>R</td><td>マルチ音声のオン / オフ。オンのあいだは音声ボタンと Q/W/E が「足す / 外す」になり、最大3本まで混ぜられます（MAIN + VC-A など）。最後の1本は外せません（消すときは M）</td></tr>
       <tr><td>F</td><td>全画面のオン / オフ。キャプチャ時は全画面を推奨します</td></tr>
       <tr><td>V</td><td>省帯域モード。表示していない配信の画質を落として、見ている配信に帯域を回します。Space で映像も切り替えて往復している間は自動で一時解除し、切替直後の画質低下を避けます</td></tr>
+      <tr><td>ズレ微調整</td><td>「その他」のズレ微調整にある <b>画面で合わせる</b> で、映像を並べて合わせる画面が開きます。映像ごとに止める / 流す（映像を押しても同じ）ことができ、バーは前後30秒の範囲で再生位置を動かせます。<b>完了</b>を押すと、いちばん進んでいる（LIVE に近い）映像を LIVE にし、他はその差をズレ微調整として保ったまま再生します。アーカイブは位置をそのまま残し、まとめてシークでズレを保ちます</td></tr>
       <tr><td>D</td><td>診断パネル。画質が悪いときの切り分けに使います</td></tr>
       <tr><td>?</td><td>このヘルプ</td></tr>
     </table>
