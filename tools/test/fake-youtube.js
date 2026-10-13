@@ -10,7 +10,13 @@
        返るのを再現する。実機で、ライブに SYNC が出る形で発覚した
      - アーカイブ（CFG.archive）は普通の動画。isLive が false で、getDuration() は
        再生位置と同じ軸の「終端」を返し、頭から終端まで自由にシークできる
-   本物に無いもの: seek の着地遅延、セグメント粒度、LIVE端への自動追いつき。
+     - LIVE端を指したシークは、端ちょうどではなくセグメント1つぶんほど手前に
+       着地する。手前の量は配信ごとに違う（CFG.landLag: {動画ID: 秒}。実行中に
+       書き換えてよい）。LIVE ボタンのあとに映像どうしがずれるのはこれのせい
+     - ライブでも LIVE端ではなく途中や頭から再生が始まることがある（CFG.startAt:
+       {動画ID: 秒}。以前見た位置からの再開などで起きる。実機で MAIN だけが冒頭から
+       流れた）
+   本物に無いもの: seek の着地遅延、LIVE端への自動追いつき。
    ここで通っても実機で動く保証にはならないので、トランスポートを変えたら
    実際の配信でも確かめること。 */
 window.__FAKE = { players: {} };
@@ -108,9 +114,12 @@ window.__FAKE = { players: {} };
   };
   FakePlayer.prototype.seekTo = function(t){
     const lo = this.floor(), hi = this.edge();
-    const clamped = Math.min(hi, Math.max(lo, t));
+    let clamped = Math.min(hi, Math.max(lo, t));
     // 本物は DVR 無効の配信への seekTo をエラーも出さずに無視する（実機で確認）
     if(this.noDvr()){ this.seekLog.push({asked: t, got: null, edge: hi, ignored: true}); return; }
+    // LIVE端（かその先）を指すと、配信ごとに決まった量だけ手前に着地する
+    const lag = (CFG.landLag && CFG.landLag[this.videoId]) || 0;
+    if(this.live && t >= hi && lag) clamped = Math.max(lo, hi - lag);
     this.seekLog.push({asked: t, got: clamped, edge: hi});
     this.posBase = clamped;
     this.posWall = now();
@@ -120,7 +129,8 @@ window.__FAKE = { players: {} };
       // ライブは再生が始まった瞬間に LIVE端へ着く。アーカイブは頭から
       this.started = true;
       this.startedAt = now();
-      this.posBase = this.live ? this.edge() : 0;
+      const at = CFG.startAt && CFG.startAt[this.videoId];
+      this.posBase = this.live ? (at != null ? at : this.edge()) : 0;
       this.posWall = now();
     }
     if(!this.playing){ this.posBase = this.pos(); this.posWall = now(); this.playing = true; }
