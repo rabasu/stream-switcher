@@ -13,6 +13,9 @@
      - LIVE端を指したシークは、端ちょうどではなくセグメント1つぶんほど手前に
        着地する。手前の量は配信ごとに違う（CFG.landLag: {動画ID: 秒}。実行中に
        書き換えてよい）。LIVE ボタンのあとに映像どうしがずれるのはこれのせい
+     - ライブでも LIVE端ではなく途中や頭から再生が始まることがある（CFG.startAt:
+       {動画ID: 秒}。以前見た位置からの再開などで起きる。実機で MAIN だけが冒頭から
+       流れた）
    本物に無いもの: seek の着地遅延、LIVE端への自動追いつき。
    ここで通っても実機で動く保証にはならないので、トランスポートを変えたら
    実際の配信でも確かめること。 */
@@ -126,7 +129,8 @@ window.__FAKE = { players: {} };
       // ライブは再生が始まった瞬間に LIVE端へ着く。アーカイブは頭から
       this.started = true;
       this.startedAt = now();
-      this.posBase = this.live ? this.edge() : 0;
+      const at = CFG.startAt && CFG.startAt[this.videoId];
+      this.posBase = this.live ? (at != null ? at : this.edge()) : 0;
       this.posWall = now();
     }
     if(!this.playing){ this.posBase = this.pos(); this.posWall = now(); this.playing = true; }

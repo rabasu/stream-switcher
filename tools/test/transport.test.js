@@ -1232,6 +1232,35 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 41. ライブなのに LIVE端ではなく冒頭から再生が始まっても、読み込み時に LIVE端へ送る。
+         以前は再生が始まった位置をそのまま LIVE端とみなしていたため、冒頭を「LIVE」と
+         表示したまま流し続けた（実機で MAIN だけが冒頭から流れた） */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], startAt: {[MAIN_ID]: 5} });
+    await sleep(2000);
+    const d = await delays(page);
+    check('冒頭から始まったライブも、読み込み時に LIVE端へ送られる',
+          d.main < 3 && d.a < 3, 'MAIN の遅れ ' + d.main.toFixed(1) + '秒 / VC-A ' + d.a.toFixed(1) + '秒');
+    await ctx.close();
+  }
+  /* 42. 上に加えて、始まってしばらく isLive:false が返る（メタデータが遅い）場合。
+         冒頭から始まると「頭から始まった = 動画」と読めてしまい、アーカイブと
+         決めたあと二度と見直さなかった */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], startAt: {[MAIN_ID]: 5},
+                                          lateLive: [MAIN_ID], metaMs: 4500 });
+    await sleep(6000);
+    const d = await delays(page);
+    const st = await page.evaluate(() => ({
+      posHidden: document.getElementById('posLabel').hidden,
+      label: document.getElementById('offsetLabel').textContent
+    }));
+    check('冒頭から始まり isLive が遅れて届くライブも、ライブと分かって LIVE端へ送られる',
+          d.main < 3 && st.posHidden && st.label.indexOf('LIVE') >= 0,
+          'MAIN の遅れ ' + d.main.toFixed(1) + '秒 / 経過表示 hidden=' + st.posHidden + ' / ピル "' + st.label + '"');
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

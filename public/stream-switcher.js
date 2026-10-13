@@ -719,6 +719,7 @@ const isLiveNow = {main:null, a:null, b:null};
 const vdSeen = {main:0, a:0, b:0};     // アーカイブと読めた最初の時刻(ms)
 const vdRaw = {main:null, a:null, b:null};  // 診断パネル用の生の値
 const ARCHIVE_CONFIRM_MS = 1500;       // アーカイブと決めるまで読みを保つ時間
+const ARCHIVE_RECHECK_MS = 60000;      // アーカイブと決めたあと、ライブではないか見続ける時間
 const LIVE_PAD = 3600;                 // ライブの getDuration() が返す詰め物の値
 const HEAD_EPS = 15;                   // これ以内から始まったら「頭から」とみなす(秒)
 /* 再生が始まった位置。頭（0付近）からなら動画、LIVE端からならライブ。
@@ -808,6 +809,22 @@ function probeVideoData(k){
   if(isLiveNow[k] === false && (paddedLive(k, end)
       || (cur !== null && end > 0 && cur > end + 1))){
     isLiveNow[k] = null; canRewind[k] = null; vdSeen[k] = 0;
+  }
+  // アーカイブと決めたあとでも、しばらくは isLive:true が届かないか見続ける。
+  // 冒頭から始まったライブは「頭から始まった = 動画」と読めてしまい、メタデータが
+  // 遅いと isLive:false のままアーカイブと決まる。ライブと分かったら決め直し、
+  // LIVE端へ送る（ライブ側へ倒す取り違えは軽い）
+  if(isLiveNow[k] === false && performance.now() - vdSeen[k] < ARCHIVE_RECHECK_MS){
+    let vd = null;
+    try{ vd = p.getVideoData(); }catch(e){}
+    if(vd && vd.isLive === true && (!loadedId[k] || vd.video_id === loadedId[k])){
+      vdRaw[k] = vd;
+      isLiveNow[k] = true;
+      canRewind[k] = vd.allowLiveDvr !== false;
+      edgeWall[k] = 0;                         // 終端を LIVE端にしていた推定を捨てる
+      setTimeout(() => syncPlayerToLive(k), 0);
+      return;
+    }
   }
   if(canRewind[k] !== null) return;          // 決まっていれば読み直さない
   if(cur === null || cur <= 0) return;       // まだ再生が始まっていない
@@ -1219,6 +1236,26 @@ function syncPlayerToLive(k){
     if(readRewind(k) === null && ++attempt < 40){
       try{ p.playVideo(); }catch(e){}
       setTimeout(tick, 250);
+      return;
+    }
+    // 巻き戻せるライブは、読み込んだらまず LIVE端へ送る。ライブでも LIVE端から
+    // 始まるとは限らない（以前見た位置からの再開などで、冒頭から流れることがある。
+    // 実機で MAIN だけが冒頭から流れた）。始まった位置を LIVE端とみなすと、
+    // 冒頭を「LIVE」と表示したまま流し続けてしまう。LIVE ボタンと同じく、はるか
+    // 先を指してプレーヤーのクランプで着地させ、着地点を LIVE端として貼る
+    const cur = playerTime(k);
+    if(readRewind(k) === true && cur !== null && cur > 0){
+      try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){}
+      try{ p.playVideo(); }catch(e){}
+      const seq = transportSeq;
+      setTimeout(() => {
+        if(players[k] !== p || !ready[k]) return;
+        noteLiveEdge(k);
+        // 間にシークなどの操作が入っていたら、その操作に任せる
+        if(seq === transportSeq && targetOffset > 0) seekPlayer(k);
+        renderTransport();
+      }, SETTLE_MS);
+      renderTransport();
       return;
     }
     if(noteLiveEdge(k)){
