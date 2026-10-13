@@ -1239,8 +1239,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const { ctx, page } = await session({ keys: ['main','a'], startAt: {[MAIN_ID]: 5} });
     await sleep(2000);
     const d = await delays(page);
+    const shown = await label(page);
+    // 表示（LIVE）と実際の位置が食い違わないこと。以前は表示だけ LIVE で、映像は冒頭だった
     check('冒頭から始まったライブも、読み込み時に LIVE端へ送られる',
-          d.main < 3 && d.a < 3, 'MAIN の遅れ ' + d.main.toFixed(1) + '秒 / VC-A ' + d.a.toFixed(1) + '秒');
+          d.main < 3 && d.a < 3 && shown.indexOf('LIVE') >= 0,
+          'MAIN の遅れ ' + d.main.toFixed(1) + '秒 / VC-A ' + d.a.toFixed(1) + '秒 / 表示 "' + shown + '"');
     await ctx.close();
   }
   /* 42. 上に加えて、始まってしばらく isLive:false が返る（メタデータが遅い）場合。
