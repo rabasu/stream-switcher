@@ -243,7 +243,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   {
     const { ctx, page } = await session();
     await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
-    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="0.5"]').click());
+    await page.evaluate(() => adjustTrim('main', 0.5));
     await sleep(2000);
     await page.evaluate(() => {
       document.getElementById('u-main').value = 'https://www.youtube.com/watch?v=DDDDDDDDDDD';
@@ -283,7 +283,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const gap = () => page.evaluate(() =>
       window.__FAKE.players['p-main'].getCurrentTime() - window.__FAKE.players['p-a'].getCurrentTime());
     const before = await gap();
-    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="-0.5"]').click());
+    await page.evaluate(() => adjustTrim('main', -0.5));
     await sleep(2500);
     const moved = (await gap()) - before;
     check('LIVE端でも、ズレ微調整の「−」は実際に動く',
@@ -293,31 +293,31 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
-  /* 12. ズレ微調整: LIVE端では「+」を押せなくする（黙って無反応にしない） */
+  /* 12. ズレ微調整: LIVE端では「+」（進める向き）を受け付けない。
+         表示だけ進んで実際は動かない、という状態を作らない */
   {
     const { ctx, page } = await session({ keys: ['main','a'] });
-    const plus = '[data-trim="main"][data-d="0.5"]';
-    const atLive = await page.evaluate(sel => ({
-      disabled: document.querySelector(sel).disabled,
-      title: document.querySelector(sel).title
-    }), plus);
-    check('LIVE端では「+」が無効で、理由が示される',
-          atLive.disabled && /追いついている/.test(atLive.title),
-          'disabled=' + atLive.disabled + ' / title "' + atLive.title + '"');
-
-    // 戻して見ているあいだは余地があるので押せる
-    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
-    await sleep(2500);
-    const behind = await page.evaluate(sel => document.querySelector(sel).disabled, plus);
     const gap = () => page.evaluate(() =>
       window.__FAKE.players['p-main'].getCurrentTime() - window.__FAKE.players['p-a'].getCurrentTime());
+    const g0 = await gap();
+    await page.evaluate(() => adjustTrim('main', 0.5));
+    await sleep(2500);
+    const stay = (await gap()) - g0;
+    const shown = await page.textContent('#tr-main');
+    check('LIVE端では「+」が効かず、ズレの表示も進まない',
+          shown === '0.0' && Math.abs(stay) < 0.15,
+          '表示 ' + shown + ' / MAIN が ' + stay.toFixed(3) + '秒 動いた（期待 0）');
+
+    // 戻して見ているあいだは余地があるので動かせる
+    await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
+    await sleep(2500);
     const before = await gap();
-    await page.evaluate(sel => document.querySelector(sel).click(), plus);
+    await page.evaluate(() => adjustTrim('main', 0.5));
     await sleep(2500);
     const moved = (await gap()) - before;
-    check('戻して見ているあいだは「+」が押せて、実際に動く',
-          !behind && Math.abs(moved - 0.5) < 0.15,
-          'disabled=' + behind + ' / MAIN が ' + moved.toFixed(3) + '秒 動いた（期待 +0.5秒）');
+    check('戻して見ているあいだは「+」が効いて、実際に動く',
+          Math.abs(moved - 0.5) < 0.15,
+          'MAIN が ' + moved.toFixed(3) + '秒 動いた（期待 +0.5秒）');
     await ctx.close();
   }
 
@@ -332,7 +332,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.evaluate(() => document.querySelector('[data-seek="30"]').click());
     await sleep(2500);
     const before = await pos();
-    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="0.5"]').click());
+    await page.evaluate(() => adjustTrim('main', 0.5));
     await sleep(2500);
     const after = await pos();
     const dMain = after.main - before.main - (after.a - before.a);   // A を基準にした MAIN の移動
@@ -347,7 +347,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   {
     const { ctx, page } = await session({ keys: ['main','a'] });
     const before = await label(page);
-    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="-0.5"]').click());
+    await page.evaluate(() => adjustTrim('main', -0.5));
     await sleep(3000);
     check('ズレ微調整は LIVE からの遅れ表示を動かさない',
           before.indexOf('LIVE') >= 0 && (await label(page)).indexOf('LIVE') >= 0,
@@ -420,16 +420,71 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
-  /* 18. 巻き戻せない配信のズレ微調整は押せない */
+  /* 18. 巻き戻せない配信のズレ微調整は受け付けない */
   {
     const { ctx, page } = await session({ keys: ['main','a'], noDvr: [MAIN_ID] });
+    const st = await page.evaluate(() => {
+      adjustTrim('main', -0.5);
+      adjustTrim('a', -0.5);
+      return {
+        main: document.getElementById('tr-main').textContent,
+        a: document.getElementById('tr-a').textContent
+      };
+    });
+    check('巻き戻せない配信のズレ微調整は効かず、戻せる配信は動かせる',
+          st.main === '0.0' && st.a === '-0.5',
+          'MAIN ' + st.main + ' / VC-A ' + st.a);
+    await ctx.close();
+  }
+
+  /* 18b. 「その他」のズレ。画面を開く「映像ズレ比較＆調整」ボタンと、その場で
+          0.5秒 ずつ直す ± が並ぶ。廃止した設定ボタンは出ない */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
     const st = await page.evaluate(() => ({
-      mainMinus: document.querySelector('[data-trim="main"][data-d="-0.5"]').disabled,
-      aMinus: document.querySelector('[data-trim="a"][data-d="-0.5"]').disabled
+      trimBtns: document.querySelectorAll('#morePanel #g-trim [data-trim]').length,
+      // LIVE端では「+」は押せず理由が出る。「−」は押せる。未読込の B はどちらも押せない
+      plusDis: document.querySelector('[data-trim="main"][data-d="0.5"]').disabled,
+      plusTitle: document.querySelector('[data-trim="main"][data-d="0.5"]').title,
+      minusDis: document.querySelector('[data-trim="main"][data-d="-0.5"]').disabled,
+      bDis: document.querySelector('[data-trim="b"][data-d="-0.5"]').disabled,
+      label: document.getElementById('syncOpenBtn').textContent,
+      vals: ['main','a','b'].map(k => document.getElementById('tr-'+k).textContent).join(' '),
+      bOff: document.querySelector('[data-tv="b"]').classList.contains('off'),
+      aOff: document.querySelector('[data-tv="a"]').classList.contains('off'),
+      gone: ['eco','diagbtn','helpbtn2'].every(id => !document.getElementById(id))
     }));
-    check('巻き戻せない配信のズレ微調整は無効、戻せる配信は押せる',
-          st.mainMinus && !st.aMinus,
-          'MAIN − disabled=' + st.mainMinus + ' / VC-A − disabled=' + st.aMinus);
+    check('「その他」に「映像ズレ比較＆調整」ボタンと ± が並び、設定ボタンは出ない',
+          st.trimBtns === 6 && /映像ズレ比較＆調整/.test(st.label) && st.vals === '0.0 0.0 0.0'
+            && st.bOff && !st.aOff && st.gone,
+          '± ' + st.trimBtns + '個 "' + st.label + '" / 値 ' + st.vals
+            + ' / 未読込 B 薄い=' + st.bOff + ' / 設定ボタン廃止=' + st.gone);
+    check('± は LIVE端の「+」と未読込の配信が無効で、理由が示される',
+          st.plusDis && /追いついている/.test(st.plusTitle) && !st.minusDis && st.bDis,
+          '+ disabled=' + st.plusDis + ' "' + st.plusTitle + '" / − disabled=' + st.minusDis + ' / B disabled=' + st.bDis);
+    // ± を実際に押すと、その配信だけが 0.5秒 動く
+    const tg = () => page.evaluate(() =>
+      window.__FAKE.players['p-main'].getCurrentTime() - window.__FAKE.players['p-a'].getCurrentTime());
+    const tg0 = await tg();
+    await page.evaluate(() => document.querySelector('[data-trim="main"][data-d="-0.5"]').click());
+    await sleep(2500);
+    const tgMoved = (await tg()) - tg0;
+    const trShown = await page.textContent('#tr-main');
+    check('「−」ボタンを押すと、実際に 0.5秒 動いて値に出る',
+          Math.abs(tgMoved + 0.5) < 0.15 && trShown === '-0.5',
+          'MAIN が ' + tgMoved.toFixed(3) + '秒 動いた / 表示 ' + trShown);
+
+    // ボタンを廃止しても V / D / ? のキーは効く
+    await page.keyboard.press('d');
+    const diag = await page.evaluate(() => document.getElementById('diag').classList.contains('show'));
+    const eco0 = await page.evaluate(() => ecoMode);
+    await page.keyboard.press('v');
+    const eco = (await page.evaluate(() => ecoMode)) !== eco0;
+    await page.keyboard.press('?');
+    const help = await page.evaluate(() => getComputedStyle(document.getElementById('help')).display !== 'none');
+    check('省帯域(V)・診断(D)・ヘルプ(?) はキーで引き続き使える',
+          diag && eco && help,
+          '診断=' + diag + ' / 省帯域が切り替わった=' + eco + ' / ヘルプ=' + help);
     await ctx.close();
   }
 
@@ -1066,7 +1121,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   {
     const { ctx, page } = await session({ keys: ['main'] });
     const dis = await page.evaluate(() => document.getElementById('syncOpenBtn').disabled);
-    check('映像が1本だけなら「画面で合わせる」は押せない', dis, 'disabled=' + dis);
+    check('映像が1本だけなら「映像ズレ比較＆調整」は押せない', dis, 'disabled=' + dis);
     await ctx.close();
   }
 
@@ -1163,16 +1218,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           Math.abs(g2 - g0) < 0.3 && Math.abs(g3 - g0) < 0.3 && Math.abs(g4 - g0) < 0.3 && realMain < 3,
           '差 ' + [g2, g3, g4].map(g => g.toFixed(2)).join(' / ') + '（基準 ' + g0.toFixed(2) + '） / MAIN の遅れ ' + realMain.toFixed(1));
 
-    // ± ボタンで動かした量も、その後の LIVE で保たれる
-    await page.evaluate(() => document.querySelector('[data-trim="a"][data-d="0.5"]').click());
+    // adjustTrim で1本だけ動かした量も、その後の LIVE で保たれる
+    await page.evaluate(() => adjustTrim('a', 0.5));
     await sleep(3000);
     const g5 = await contentGap(page);
     await page.evaluate(() => document.getElementById('golive').click());
     await sleep(6000);
     const g6 = await contentGap(page);
-    check('± ボタンで足した量も含めて、LIVE 後に差が保たれる',
+    check('1本だけ動かした量も含めて、LIVE 後に差が保たれる',
           Math.abs((g5 - g0) - 0.5) < 0.3 && Math.abs(g6 - g5) < 0.3,
-          '± 後の差 ' + g5.toFixed(2) + '（期待 ' + (g0 + 0.5).toFixed(2) + '） → LIVE 後 ' + g6.toFixed(2));
+          '動かした後の差 ' + g5.toFixed(2) + '（期待 ' + (g0 + 0.5).toFixed(2) + '） → LIVE 後 ' + g6.toFixed(2));
 
     // 着地が揺れたあとに開き直しても、画面の差の読みは設定したズレのまま
     await page.evaluate(() => document.getElementById('syncOpenBtn').click());
