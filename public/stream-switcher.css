@@ -272,10 +272,7 @@ body.touch #volWrap,
 /* スクラブバーがあるので不要 */
 body.touch #g-seek,
 /* 配信のズレ合わせと画質切り分けはオペレーター（PC）の仕事 */
-body.touch #g-trim,
-body.touch #diagbtn,
-/* モバイル回線で省帯域を切る理由がないので固定（既定値のまま） */
-body.touch #eco{display:none;}
+body.touch #g-trim{display:none;}
 
 /* コピーとヘルプは記号だけにして枠を詰める。文字の説明はボタン名では
    なく記号を指す（導入画面の手順に同じ記号を並べてある）。
@@ -379,6 +376,18 @@ body.chrome-hidden #diag{
   padding-top:10px;border-top:1px solid rgba(255,255,255,.06);
 }
 .secondaryRow.collapsed{display:none;}
+/* ズレ合わせはシーク・速度とは別の用事なので離して置く。広い画面では
+   「映像ズレ比較＆調整」ボタンを操作バーの中央に据え、± はその右に添える。
+   ± を流れから外してあるので、グループの幅 = ボタンの幅になり、グループを
+   中央に置けばボタンが中央に来る。狭い画面では左の組と重なるので右端へ寄せる */
+.secondaryRow{position:relative;}
+.secondaryRow #g-trim{margin-left:auto;}
+.trimSet{display:flex;align-items:center;gap:6px;}
+@media (min-width:1150px){
+  .secondaryRow #g-trim{position:absolute;left:50%;bottom:0;transform:translateX(-50%);margin-left:0;}
+  #g-trim .row{position:relative;}
+  #g-trim .trimSet{position:absolute;left:calc(100% + 12px);top:0;bottom:0;}
+}
 .secondaryRow .group>span{font-size:.6rem;}
 .secondaryRow .pill{padding:5px 10px;font-size:.76rem;font-weight:500;}
 
@@ -402,9 +411,6 @@ body.chrome-hidden #diag{
    押せないことを見た目でも示す（ホバーの反応も止める） */
 .pill:disabled{opacity:.3;cursor:default;}
 .pill:disabled:hover{border-color:var(--line);color:var(--sub);}
-.trim button:disabled{opacity:.3;cursor:default;}
-/* 省帯域の一時解除中。設定は ON のままなので、塗りをやめて枠線で示す */
-.pill.on.suspended[data-k="both"]{background:transparent;color:var(--ok);}
 
 /* ===== モードのスイッチ =====
    「マルチ音声」と「Space の切替対象」の2つ。どちらも他のボタンの
@@ -657,12 +663,27 @@ body.paused #playBtn .iconPlay{display:block;}
 }
 #volLabel.muted{color:var(--sub);}
 
+/* 映像ズレ比較＆調整の画面を開くボタン。ズレ合わせの主な入口なので、他の
+   ピルより目立たせる。縁取りと「›」で、押すと別の画面へ進むことを示す */
+#syncOpenBtn{
+  display:inline-flex;align-items:center;gap:6px;
+  border:1.5px solid var(--a);color:var(--a);background:rgba(78,168,222,.12);font-weight:700;
+}
+#syncOpenBtn .go{font-size:1.1em;line-height:1;transition:transform .12s;}
+#syncOpenBtn:hover{background:var(--a);color:#04060a;}
+#syncOpenBtn:hover .go{transform:translateX(2px);}
+#syncOpenBtn:disabled{border-color:var(--line);color:var(--sub);background:rgba(255,255,255,.05);}
+#syncOpenBtn:disabled .go{transform:none;}
+/* いまのズレと、0.5秒 刻みの ±。画面を開かずにその場で少し直すためのもの */
 .trim{display:flex;align-items:center;gap:3px;font-size:.7rem;color:var(--sub);}
+.trim.off{opacity:.35;}
 .trim button{
   background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--sub);
   border-radius:4px;width:20px;height:20px;cursor:pointer;font-size:.72rem;line-height:1;padding:0;
 }
 .trim button:hover{border-color:var(--text);color:var(--text);}
+.trim button:disabled{opacity:.3;cursor:default;}
+.trim button:disabled:hover{border-color:var(--line);color:var(--sub);}
 .trim var{font-style:normal;font-family:ui-monospace,monospace;min-width:34px;text-align:center;color:var(--text);}
 
 /* ===== 音声インジケーター ===== */
@@ -836,7 +857,6 @@ body.paused #playBtn .iconPlay{display:block;}
   .group{flex:1 1 100%;}
   .secondaryRow .row{flex-wrap:wrap;}
   .secondaryRow .pill{flex:1 1 auto;padding:9px 10px;}
-  .trim button{width:32px;height:32px;}
 
   #hint{font-size:.66rem;}
 
@@ -877,7 +897,7 @@ body.paused #playBtn .iconPlay{display:block;}
   #fsBtn,#chromeBtn{width:36px;height:36px;margin-bottom:6px;}
 }
 
-/* ===== ズレ微調整の画面 =====
+/* ===== 映像ズレ比較＆調整の画面 =====
    映像は #stage のレイヤーを各セルの枠（.syncVideo）の位置へ動かして見せる。
    この画面は透明にして、枠の部分から下の映像が見えるようにする（背景の黒は
    #stage のもの）。いつもの操作バーなどは、裏で動かしてしまわないよう隠す */

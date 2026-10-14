@@ -240,7 +240,7 @@ let ecoResumeTimer = null;
 
 function ecoActive(){ return ecoMode && !ecoSuspended; }
 function applyEcoLayers(){
-  // ズレ微調整の画面では並べた映像をどれも見ている。どれも縮めない
+  // 映像ズレ比較＆調整の画面では並べた映像をどれも見ている。どれも縮めない
   const on = ecoActive() && !syncOpen;
   KEYS.forEach(x => document.getElementById('layer-'+x)
     .classList.toggle('eco', x !== videoSrc && on));
@@ -254,7 +254,6 @@ function suspendEco(){
   if(!ecoSuspended){
     ecoSuspended = true;
     applyEcoLayers();
-    renderEco();
   }
   armEcoResume();
 }
@@ -264,19 +263,8 @@ function resumeEco(){
   if(!ecoSuspended) return;
   ecoSuspended = false;
   applyEcoLayers();
-  renderEco();
 }
-/* ボタンは 塗り=省帯域が効いている / 枠線だけ=設定は ON だが一時解除中 */
-function renderEco(){
-  const btn = document.getElementById('eco');
-  btn.classList.toggle('on', ecoMode);
-  btn.classList.toggle('suspended', ecoMode && ecoSuspended);
-  btn.title = !ecoMode
-    ? '省帯域モード OFF (V)'
-    : (ecoSuspended
-        ? '省帯域モード ON — Space の連動切替中なので一時解除しています (V)'
-        : '省帯域モード ON (V)');
-}
+/* 切り替えは V キーだけ（「その他」のボタンは廃止した） */
 function toggleEco(){
   ecoMode = !ecoMode;
   // 手で切り替えたときは一時解除の状態を持ち越さない
@@ -284,7 +272,6 @@ function toggleEco(){
   ecoResumeTimer = null;
   ecoSuspended = false;
   applyEcoLayers();
-  renderEco();
 }
 
 /* ================================================================
@@ -353,10 +340,15 @@ function loadedCount(){ return KEYS.filter(k => players[k]).length; }
 function renderAvailability(){
   document.querySelectorAll('[data-vid]').forEach(b => b.disabled = !players[b.dataset.vid]);
   document.querySelectorAll('[data-aud]').forEach(b => b.disabled = !players[b.dataset.aud]);
-  // ズレ微調整も、無い配信の分は動かしても意味がない
-  renderTrim();                   // ズレ微調整は「進める余地」でも押せるかが変わる
-  // 画面で合わせるのは、並べる相手がいるときだけ
-  document.getElementById('syncOpenBtn').disabled = loadedCount() < 2;
+  // 無い配信のズレは薄くする
+  renderTrim();                   // ± は「進める余地」でも押せるかが変わる
+  document.querySelectorAll('[data-tv]').forEach(el => el.classList.toggle('off', !players[el.dataset.tv]));
+  // 映像ズレ比較＆調整の画面は、並べる相手がいるときだけ
+  const syncBtn = document.getElementById('syncOpenBtn');
+  syncBtn.disabled = loadedCount() < 2;
+  syncBtn.title = syncBtn.disabled
+    ? '映像を2本以上読み込むと使えます'
+    : '映像を並べて、ズレを見ながら合わせる画面を開く';
   // マルチ音声は混ぜる相手が要る
   document.getElementById('mix').disabled = loadedCount() < 2;
   if(loadedCount() < 2 && mixMode) mixMode = false;
@@ -1308,7 +1300,10 @@ function setRate(r){
    追いついている間は押してもプレーヤー側でクランプされて必ず何も起きない。
    押せてしまうと「効かないだけ」なのか「壊れている」のか区別が付かないので、
    余地がない側のボタンを無効にして、理由を title で示す。
-   余地 = いまの遅れ(targetOffset) − その配信の trim */
+   余地 = いまの遅れ(targetOffset) − その配信の trim
+
+   大きなズレは映像ズレ比較＆調整の画面で合わせる。「その他」の ± は、
+   画面を開かずにその場で少しだけ直すために残してある */
 const TRIM_EPS = 1e-6;
 /* ズレ微調整で「進める」余地。ライブは LIVE端より先へは行けない。
    アーカイブは終端まで進められるので、この制約は掛けない */
@@ -1368,7 +1363,7 @@ function fmt(sec){
 }
 
 /* ================================================================
-   ズレ微調整の画面
+   映像ズレ比較＆調整の画面
    ±0.5秒のボタンだけでは、何秒ずれているかを映像を見比べながら探る
    ことになり、合わせるのに時間が掛かる。読み込んだ映像を並べて同時に
    見せ、1本ずつ止めたり前後させたりして場面を揃えてもらう。
@@ -1808,7 +1803,7 @@ function reconcileTransport(){
   // 見ている配信の実測で全配信を貼り直していたため、巻き戻せない MAIN が
   // LIVE端にいるのを見て、60秒戻った VC-A まで「LIVE端にいる」と記録し、
   // 以後 LIVE ボタンでも戻らなくなった（実機で再現）
-  // ズレ微調整の画面を開いているあいだは貼り直さない。止めて合わせた数秒の
+  // 映像ズレ比較＆調整の画面を開いているあいだは貼り直さない。止めて合わせた数秒の
   // 差が LIVE端の推定へ吸われ、完了のときに差が消えてしまう
   if(!paused && !syncOpen){
     KEYS.forEach(k => {
@@ -2018,7 +2013,6 @@ function renderDiag(){
 function toggleDiag(){
   diagOn = !diagOn;
   document.getElementById('diag').classList.toggle('show', diagOn);
-  document.getElementById('diagbtn').classList.toggle('on', diagOn);
   renderDiag();
 }
 setInterval(renderDiag, 700);
@@ -2325,7 +2319,6 @@ document.getElementById('swap').addEventListener('click', swapVc);
 function goLiveOrSync(){ archiveMode() ? syncToShown() : goLive(); }
 document.getElementById('golive').addEventListener('click', goLiveOrSync);
 document.getElementById('groupSeek').addEventListener('click', toggleGroupSeek);
-document.getElementById('eco').addEventListener('click', toggleEco);
 document.getElementById('linkVideo').addEventListener('click', toggleLinkVideo);
 document.getElementById('swapCaretBtn').addEventListener('click', () => {
   swapMenuOpen() ? closeSwapMenu(true) : openSwapMenu();
@@ -2340,7 +2333,6 @@ document.querySelectorAll('.swapMenuItem').forEach(item => {
     reclaimFocus();
   });
 });
-document.getElementById('diagbtn').addEventListener('click', toggleDiag);
 document.getElementById('playBtn').addEventListener('click', togglePlay);
 document.getElementById('centerBtn').addEventListener('click', () => {
   if(swallowCenterClick) return;   // 出現させたタップでは押さない
@@ -2353,7 +2345,6 @@ document.getElementById('fsBtn').addEventListener('click', toggleFs);
 document.getElementById('chromeBtn').addEventListener('click', hideChromeNow);
 document.getElementById('toggleMore').addEventListener('click', () => toggleMore());
 document.getElementById('helpbtn').addEventListener('click', () => toggleHelp(true));
-document.getElementById('helpbtn2').addEventListener('click', () => toggleHelp(true));
 document.getElementById('helpclose').addEventListener('click', () => toggleHelp(false));
 
 document.querySelectorAll('[data-vid]').forEach(b => b.addEventListener('click', () => setVideo(b.dataset.vid)));
@@ -2390,7 +2381,6 @@ document.getElementById('unmuteChip').addEventListener('click', () => {
   reclaimFocus();
 });
 setVolume(100);
-renderEco();
 renderLinkVideo();
 renderAvailability();
 
@@ -2430,7 +2420,7 @@ window.addEventListener('keydown', e => {
   if(e.target.tagName === 'INPUT') return;
   if(e.ctrlKey || e.metaKey || e.altKey) return;   // ブラウザのショートカットを優先
   if(e.key === 'F5') return;
-  // ズレ微調整の画面では、裏の操作（音声・シーク・LIVE など）を動かさない。
+  // 映像ズレ比較＆調整の画面では、裏の操作（音声・シーク・LIVE など）を動かさない。
   // フォーカスしているボタンの Space / Enter は、ブラウザの既定どおり効く
   if(syncOpen){
     if(e.key.toLowerCase() === 'f'){ e.preventDefault(); toggleFs(); }
