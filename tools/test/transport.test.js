@@ -984,11 +984,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         const l = document.getElementById('layer-'+k).getBoundingClientRect();
         const v = document.querySelector('.syncCell[data-sk="'+k+'"] .syncVideo').getBoundingClientRect();
         return Math.abs(l.left - v.left) < 1 && Math.abs(l.width - v.width) < 1 && v.width > 100;
-      })
+      }),
+      // 見た目は縮めても、プレーヤーの寸法は画面の幅のまま（縮めると画質が落ちて戻らない #14）
+      fullSize: ['main','a'].every(k =>
+        document.querySelector('#layer-'+k+' iframe').clientWidth === document.getElementById('stage').clientWidth)
     }));
     check('ズレ微調整の画面で、読み込んだ映像が並んで出る',
-          opened.panel && opened.cells.join(',') === 'main,a' && opened.placed,
-          'panel=' + opened.panel + ' / セル [' + opened.cells + '] / 枠に重なる=' + opened.placed);
+          opened.panel && opened.cells.join(',') === 'main,a' && opened.placed && opened.fullSize,
+          'panel=' + opened.panel + ' / セル [' + opened.cells + '] / 枠に重なる=' + opened.placed
+            + ' / プレーヤーは原寸=' + opened.fullSize);
 
     // VC-A だけを 4秒止める
     await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncPlay').click());

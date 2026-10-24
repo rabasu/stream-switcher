@@ -1565,16 +1565,23 @@ function layoutSync(){
   w = Math.max(200, Math.floor(w));
   grid.style.gridTemplateColumns = 'repeat(' + cols + ', ' + w + 'px)';
 }
-/* 映像のレイヤーを、セルの枠の位置へ重ねる */
+/* 映像のレイヤーを、セルの枠の位置へ重ねる。
+   レイヤーの寸法は画面の幅のまま、transform で縮めて見せる。YouTube の ABR は
+   プレーヤーの寸法で画質を選ぶので、寸法ごと縮めると低い画質へ落ち、完了して
+   原寸へ戻しても（特に縮めたままシークした直後だと）上がらないまま固まることが
+   ある（#14）。transform はプレーヤー内の寸法を変えないので、画質は落ちない */
 function placeSyncLayers(){
+  const stage = document.getElementById('stage').getBoundingClientRect();
   KEYS.forEach(k => {
     const layer = document.getElementById('layer-' + k);
     if(!syncOpen){ layer.style.cssText = ''; return; }
     const cell = document.querySelector('.syncCell[data-sk="' + k + '"]');
     if(!cell || cell.hidden){ layer.style.cssText = 'display:none'; return; }
     const r = cell.querySelector('.syncVideo').getBoundingClientRect();
-    const css = 'inset:auto;left:' + r.left + 'px;top:' + r.top + 'px;width:'
-              + r.width + 'px;height:' + r.height + 'px';
+    const w = stage.width || innerWidth;
+    const css = 'inset:auto;left:' + (r.left - stage.left) + 'px;top:' + (r.top - stage.top)
+              + 'px;width:' + w + 'px;height:' + (w * r.height / r.width)
+              + 'px;transform-origin:0 0;transform:scale(' + (r.width / w) + ')';
     if(layer.style.cssText !== css) layer.style.cssText = css;
   });
 }
