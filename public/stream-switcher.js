@@ -1394,16 +1394,6 @@ const SYNC_HALF = 30;          // バーの片側の幅(秒)。全幅で60秒
 const SYNC_RECENTER = 27;      // つまみがここまで端へ寄ったら、そのバーを中央へ戻す
 const SYNC_HOLD_MS = 700;      // シーク直後、実測が追いつくまで要求した位置で描く
 const SYNC_STEPS = [-5, -1, -0.1, 0.1, 1, 5];
-/* この画面の LIVE は、いつもの LIVE ボタンと同じ「LIVE端の LIVE_MARGIN 手前」。
-   + も LIVE ボタンもそこで止め、そこから先は行けない範囲として赤く塗る。
-   LIVE 扱いはそこまで追いついているときだけ（SYNC_LIVE_EPS は計算の誤差ぶん）。
-   いつもの画面の LIVE_EPS(3秒) を使うと、1〜2秒戻しても LIVE 扱いのまま
-   + を押せず、細かく進めて合わせられない */
-const SYNC_LIVE_EPS = 0.05;
-function syncLivePoint(k){
-  const edge = liveEdge(k);
-  return edge > 0 ? edge - LIVE_MARGIN : 0;
-}
 let syncOpen = false;
 let syncTimer = null;
 let syncDrag = null;           // バーを掴んでいるあいだ、その配信
@@ -1426,6 +1416,15 @@ function syncTick(){
   syncClockWall = now;
 }
 function syncCenter(k){ return syncAnchor[k] + syncClock; }
+/* いまの位置。シーク直後はプレーヤーの実測がまだ追いついていないので、
+   要求した位置から進めた値を使う（続けて押したボタンが古い位置から数えないように） */
+function syncPosNow(k){
+  const cur = playerTime(k);
+  const hold = syncHold[k];
+  const now = performance.now();
+  if(cur === null || !hold || now - hold.wall > SYNC_HOLD_MS) return cur;
+  return hold.t + (syncPaused[k] ? 0 : (now - hold.wall) / 1000 * (actualRate() || 1));
+}
 /* 開いたときの進み具合。ライブは LIVE端からの位置（trim は混ぜない）。
    それまでに付いていたズレはここに入る。アーカイブは開始時刻が動画ごとに
    違い、位置を比べても意味が無いので 0（＝画面で動かした量だけを数える） */
@@ -1522,10 +1521,7 @@ function buildSyncCells(){
       b.dataset.sstep = String(d);
       b.textContent = (d < 0 ? '−' : '+') + Math.abs(d) + 's';
       b.title = SRC_LABEL[k] + ' を ' + Math.abs(d) + '秒 ' + (d < 0 ? '戻す' : '進める');
-      b.addEventListener('click', () => {
-        const cur = playerTime(k);
-        if(cur !== null) syncSeek(k, cur + d);
-      });
+      b.addEventListener('click', () => syncStep(k, d));
       steps.appendChild(b);
     });
 
@@ -1547,13 +1543,9 @@ function buildSyncCells(){
 function syncSeek(k, t){
   const p = players[k];
   if(!p || !seekable(k)) return;
-  // ライブはこの画面の LIVE（LIVE端の LIVE_MARGIN 手前）より先へは送らない。
-  // 要求をそこで止めておくと、つまみが行けない位置に一瞬だけ描かれることもない。
-  // すでにそれより先（LIVE端ちょうど）にいる映像は、進める操作で戻さない
-  if(!isArchive(k)){
-    const live = syncLivePoint(k);
-    if(live > 0) t = Math.min(t, Math.max(live, playerTime(k) || 0));
-  }
+  // ライブは LIVE端より先へ行けない。要求をそこで止めておくと、つまみが
+  // 行けない位置に一瞬だけ描かれることもない
+  if(!isArchive(k)){ const edge = liveEdge(k); if(edge > 0) t = Math.min(t, edge); }
   else{ const end = archiveEnd(k); if(end > 0) t = Math.min(t, end); }
   t = Math.max(0, t);
   transportSeq++;
@@ -1562,22 +1554,49 @@ function syncSeek(k, t){
   markCommand();
   renderSync();
 }
-/* その映像だけこの画面の LIVE（LIVE端の LIVE_MARGIN 手前）へ。完了や
-   いつもの LIVE ボタンで差を保った配信が着くのと同じ位置。止めていたら流す。
-   LIVE端の推定がまだ無いときだけ、はるか先を指してクランプで着地させる */
+/* ± ボタン。この画面で決めたいのは映像どうしの差だけなので、+X は
+   「その映像を、他の映像に比べて X 秒進める」。完了ではいちばん進んでいる
+   映像を LIVE へ送り、他はその差を保って同じだけ進めるので、各映像が LIVE から
+   何秒遅れているかは結果に関係しない。
+   ライブは LIVE端より先へ行けないので、まず自分をいちばん進んでいる映像の
+   位置まで進め、足りないぶんは他の映像を戻して差を作る（どちらでも差は同じ）。
+   LIVE端の推定は使わない。推定の揺れで押せたり押せなかったりしないように。
+   −X は自分を戻すだけ。アーカイブは終端まで余裕があるので自分を動かす */
+function syncPlusPlan(k, d){
+  const cur = syncPosNow(k);
+  if(cur === null || isArchive(k)) return null;
+  const others = syncTargets().filter(o => o !== k && !isArchive(o));
+  if(!others.length) return {self: seekable(k) ? d : 0, back: 0, others: []};   // 比べる相手が居ない
+  const aheadK = syncAhead(k, cur);
+  const top = Math.max.apply(null, others.map(o => syncAhead(o, syncPosNow(o))));
+  // 巻き戻せない映像は自分を動かせない（LIVE端に居るので、差は他を戻して作る）
+  const self = seekable(k) ? Math.min(d, Math.max(0, top - aheadK)) : 0;
+  let back = d - self;
+  // 巻き戻せない映像は戻せない。そのときは自分が追いつけるぶんだけ
+  if(back > 0.001 && !others.every(seekable)) back = 0;
+  return {self: self, back: back > 0.001 ? back : 0, others: others};
+}
+function syncStep(k, d){
+  const cur = syncPosNow(k);
+  if(cur === null) return;
+  const plan = d > 0 ? syncPlusPlan(k, d) : null;
+  if(!plan){ syncSeek(k, cur + d); return; }
+  if(plan.self > 0.001) syncSeek(k, cur + plan.self);
+  if(plan.back > 0) plan.others.forEach(o => {
+    const t = syncPosNow(o);
+    if(t !== null) syncSeek(o, t - plan.back);
+  });
+}
+/* その映像だけ LIVE端へ。推定は使わず、はるか先を指してプレーヤー側の
+   クランプで着地させる（goLive と同じ）。止めていたら流す */
 function syncLive(k){
   const p = players[k];
   const cur = playerTime(k);
   if(!p || !ready[k] || !seekable(k) || isArchive(k) || cur === null) return;
   syncTick();
   transportSeq++;
-  const live = syncLivePoint(k);
-  if(live <= 0){
-    try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){ return; }
-  }else if(cur < live - SYNC_LIVE_EPS){
-    try{ p.seekTo(live, true); }catch(e){ return; }
-    syncHold[k] = {t: live, wall: performance.now()};
-  }
+  try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){ return; }
+  syncHold[k] = {t: liveEdge(k), wall: performance.now()};
   if(syncPaused[k]){
     syncPaused[k] = false;
     try{ p.playVideo(); }catch(e){}
@@ -1665,11 +1684,11 @@ function renderSync(){
     }
     if(k !== syncDrag) bar.value = String(Math.max(-SYNC_HALF, Math.min(SYNC_HALF, rel)));
     bar.disabled = !canSeek;
-    // ライブでこの画面の LIVE より先は行けない範囲。赤く塗って見せる
+    // ライブで LIVE端より先は行けない範囲。赤く塗って見せる
     let limitPct = 100;
     if(!archive){
-      const live = syncLivePoint(k);
-      if(live > 0) limitPct = Math.max(0, Math.min(100, (live - syncCenter(k) + SYNC_HALF) / (2 * SYNC_HALF) * 100));
+      const edge = liveEdge(k);
+      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) + SYNC_HALF) / (2 * SYNC_HALF) * 100));
     }
     bar.style.background = limitPct >= 100 ? '' :
       'linear-gradient(to right, #2b3340 0%, #2b3340 ' + limitPct + '%, rgba(229,72,77,.45) '
@@ -1682,27 +1701,26 @@ function renderSync(){
       ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、止めたり動かしたりできません'
       : (syncPaused[k] ? SRC_LABEL[k] + ' を流す' : SRC_LABEL[k] + ' を止める');
     play.setAttribute('aria-label', play.title);
-    // ライブで LIVE に追いついているあいだは、進める側は行き先が無い
-    const atLive = !archive && syncLivePoint(k) - shownPos < SYNC_LIVE_EPS;
-    cell.querySelectorAll('[data-sstep]').forEach(b =>
-      b.disabled = !canSeek || (atLive && parseFloat(b.dataset.sstep) > 0));
+    // + は他の映像を戻してでも差を作れるので、押せないのは自分も他も動かせないときだけ
+    cell.querySelectorAll('[data-sstep]').forEach(b => {
+      const d = parseFloat(b.dataset.sstep);
+      if(d < 0){ b.disabled = !canSeek; return; }
+      const plan = syncPlusPlan(k, d);
+      b.disabled = plan ? !(plan.self > 0.001 || plan.back > 0) : !canSeek;
+    });
     const live = cell.querySelector('.syncLive');
     live.disabled = !canSeek || archive;
-    live.classList.toggle('live', atLive);
     live.title = archive ? 'アーカイブには LIVE がありません'
       : !canSeek ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、常に LIVE です'
       : SRC_LABEL[k] + ' を LIVE の最先端へ';
 
-    // 位置の読み。ライブは LIVE からの遅れ、アーカイブは経過 / 全体
+    // 位置の読み。アーカイブは経過 / 全体。ライブは出さない（この画面で
+    // 決めるのは映像どうしの差だけで、LIVE からの遅れは結果に関係しない）
     const posEl = cell.querySelector('.syncPos');
     if(archive){
       const end = archiveEnd(k);
       posEl.textContent = fmt(shownPos) + (end > 0 ? ' / ' + fmt(end) : '');
-    }else{
-      // 遅れは LIVE からの秒数。1分未満は 0.1秒単位で（± で詰めるときに読めるように）
-      const delay = syncLivePoint(k) - shownPos;
-      posEl.textContent = atLive ? 'LIVE' : 'LIVE − ' + (delay < 60 ? delay.toFixed(1) + '秒' : fmt(delay));
-    }
+    }else posEl.textContent = '';
 
     // 基準（いちばん進んでいる映像）との差。同じ種類が2本以上あるときだけ出す
     const group = archive ? lead.archives : lead.lives;
@@ -1710,7 +1728,7 @@ function renderSync(){
     const diffEl = cell.querySelector('.syncDiff');
     diffEl.classList.toggle('lead', group.length > 1 && k === leader);
     if(group.length < 2 || !leader) diffEl.textContent = '';
-    else if(k === leader) diffEl.textContent = archive ? '基準' : 'LIVE にする';
+    else if(k === leader) diffEl.textContent = '基準';
     else diffEl.textContent = fmtDiff(syncAhead(k, shownPos) - syncAhead(leader));
   });
   if(shapeChanged) layoutSync();

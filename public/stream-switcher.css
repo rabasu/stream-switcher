@@ -950,9 +950,6 @@ body.syncMode #diag{visibility:hidden;}
 .syncPlay:hover{border-color:var(--sColor);}
 .syncPlay:disabled,.syncLive:disabled{opacity:.3;cursor:default;}
 .syncLive:hover:not(:disabled){border-color:var(--text);}
-.syncLive.live{background:rgba(229,72,77,.14);border-color:rgba(229,72,77,.55);color:var(--live);}
-.syncLive.live .liveDot{opacity:1;animation:pulse 1.6s infinite;}
-.syncLive.live:hover{border-color:var(--live);}
 .syncPlay .iconPlay{display:none;}
 .syncCell.paused .syncPlay .iconPause{display:none;}
 .syncCell.paused .syncPlay .iconPlay{display:block;}
