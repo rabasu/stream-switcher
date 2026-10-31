@@ -1388,17 +1388,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         };
       });
     };
-    const fmt = r => '遅れ ' + r.delay.toFixed(1) + '秒 + ' + (r.plusOn ? '有効' : '無効');
+    const fmt = r => 'LIVE端から ' + r.delay.toFixed(2) + '秒 + ' + (r.plusOn ? '有効' : '無効');
     const s1 = await step(-1);
     const s2 = await step(1);
     await step(-1);
     const s4 = await step(-1);
     const s5 = await step(1);
     const s6 = await step(1);
-    check('LIVE から −1秒で + を押せ、+ だけで LIVE まで追いつける',
-          s1.plusOn && !s2.plusOn && s2.delay < 0.8 && s4.plusOn && s5.plusOn && Math.abs((s4.delay - s5.delay) - 1) < 0.3
-            && !s6.plusOn && s6.delay < 0.8,
+    // この画面の LIVE はいつもの LIVE と同じ LIVE端の 0.5秒手前。+ はそこで止まる
+    check('LIVE から −1秒で + を押せ、+ だけで LIVE（LIVE端の0.5秒手前）まで追いつける',
+          s1.plusOn && !s2.plusOn && Math.abs(s2.delay - 0.5) < 0.15 && s4.plusOn && s5.plusOn
+            && Math.abs((s4.delay - s5.delay) - 1) < 0.3 && !s6.plusOn && Math.abs(s6.delay - 0.5) < 0.15,
           '−1: ' + fmt(s1) + ' / +1: ' + fmt(s2) + ' / −1 −1: ' + fmt(s4) + ' / +1: ' + fmt(s5) + ' / +1: ' + fmt(s6));
+    const t1 = await step(-0.1);
+    const t2 = await step(0.1);
+    const shown = await page.textContent('.syncCell[data-sk="a"] .syncPos');
+    check('LIVE から −0.1秒でも + を押せ、+0.1秒で LIVE に戻る',
+          t1.plusOn && Math.abs(t1.delay - 0.6) < 0.15 && !t2.plusOn && Math.abs(t2.delay - 0.5) < 0.15 && shown === 'LIVE',
+          '−0.1: ' + fmt(t1) + ' / +0.1: ' + fmt(t2) + ' / 表示 "' + shown + '"');
     await ctx.close();
   }
 
