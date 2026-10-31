@@ -1394,6 +1394,10 @@ const SYNC_HALF = 30;          // バーの片側の幅(秒)。全幅で60秒
 const SYNC_RECENTER = 27;      // つまみがここまで端へ寄ったら、そのバーを中央へ戻す
 const SYNC_HOLD_MS = 700;      // シーク直後、実測が追いつくまで要求した位置で描く
 const SYNC_STEPS = [-5, -1, -0.1, 0.1, 1, 5];
+/* この画面で「LIVE端に追いついている」とみなす遅れ。いつもの画面の LIVE_EPS(3秒)
+   では 1〜2秒戻しても LIVE 扱いのまま + を押せない。LIVE へ戻すと LIVE端の
+   LIVE_MARGIN 手前に着くので、それに実測の揺れのぶんを足した幅にする */
+const SYNC_LIVE_EPS = LIVE_MARGIN + 0.25;
 let syncOpen = false;
 let syncTimer = null;
 let syncDrag = null;           // バーを掴んでいるあいだ、その配信
@@ -1663,7 +1667,7 @@ function renderSync(){
       : (syncPaused[k] ? SRC_LABEL[k] + ' を流す' : SRC_LABEL[k] + ' を止める');
     play.setAttribute('aria-label', play.title);
     // ライブで LIVE端に追いついているあいだは、進める側は行き先が無い
-    const atLive = !archive && liveEdge(k) - shownPos < LIVE_EPS;
+    const atLive = !archive && liveEdge(k) - shownPos < SYNC_LIVE_EPS;
     cell.querySelectorAll('[data-sstep]').forEach(b =>
       b.disabled = !canSeek || (atLive && parseFloat(b.dataset.sstep) > 0));
     const live = cell.querySelector('.syncLive');

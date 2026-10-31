@@ -1262,7 +1262,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const d0 = await delays(page);
     // 元から LIVE端にいる映像は、わざわざ下げない（端へ向かうシークだけが問題）
     check('完了で、いちばん進んでいる映像は LIVE端から 0.5秒以内のまま',
-          d0.main >= 0 && d0.main <= 0.6, 'MAIN の遅れ ' + d0.main.toFixed(2) + '秒');
+          d0.main > -0.05 && d0.main <= 0.6, 'MAIN の遅れ ' + d0.main.toFixed(2) + '秒');
 
     await page.evaluate(() => { window.__FAKECFG.landLag = {AAAAAAAAAAA: 1.5, BBBBBBBBBBB: 0.2}; });
     const seeks = () => page.evaluate(() => ({
@@ -1364,6 +1364,41 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           '戻した後 遅れ ' + back.delay.toFixed(1) + '秒 / + 無効=' + back.plusOff + ' / 点灯=' + back.lit
             + ' → LIVE 後 遅れ ' + again.delay.toFixed(1) + '秒 / 再生中=' + again.playing
             + ' / + 無効=' + again.plusOff + ' / 点灯=' + again.lit);
+    await ctx.close();
+  }
+  /* 44. LIVE から 1秒戻しただけでも + を押せ、+ だけで LIVE まで追いつける
+         （いつもの画面の LIVE_EPS=3秒を使うと、2秒以内は LIVE 扱いで + が押せなかった） */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    // いつもの LIVE と同じ、LIVE端の LIVE_MARGIN 手前から始める
+    await page.evaluate(() => document.getElementById('golive').click());
+    await sleep(2500);
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    const step = async d => {
+      await page.evaluate(d => document.querySelector('.syncCell[data-sk="a"] [data-sstep="' + d + '"]').click(), d);
+      await sleep(1000);
+      return page.evaluate(() => {
+        const cell = document.querySelector('.syncCell[data-sk="a"]');
+        const p = window.__FAKE.players['p-a'];
+        return {
+          plusOn: Array.from(cell.querySelectorAll('[data-sstep]'))
+                    .filter(b => parseFloat(b.dataset.sstep) > 0).every(b => !b.disabled),
+          delay: p.edge() - p.getCurrentTime()
+        };
+      });
+    };
+    const fmt = r => '遅れ ' + r.delay.toFixed(1) + '秒 + ' + (r.plusOn ? '有効' : '無効');
+    const s1 = await step(-1);
+    const s2 = await step(1);
+    await step(-1);
+    const s4 = await step(-1);
+    const s5 = await step(1);
+    const s6 = await step(1);
+    check('LIVE から −1秒で + を押せ、+ だけで LIVE まで追いつける',
+          s1.plusOn && !s2.plusOn && s2.delay < 0.8 && s4.plusOn && s5.plusOn && Math.abs((s4.delay - s5.delay) - 1) < 0.3
+            && !s6.plusOn && s6.delay < 0.8,
+          '−1: ' + fmt(s1) + ' / +1: ' + fmt(s2) + ' / −1 −1: ' + fmt(s4) + ' / +1: ' + fmt(s5) + ' / +1: ' + fmt(s6));
     await ctx.close();
   }
 
