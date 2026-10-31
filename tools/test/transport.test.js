@@ -1323,6 +1323,50 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await ctx.close();
   }
 
+  /* 43. 画面の3行目: 止める / 流す と LIVE。LIVE端に追いついているあいだは
+         進める側（+）のボタンを押せない */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    const read = () => page.evaluate(() => {
+      const cell = document.querySelector('.syncCell[data-sk="a"]');
+      const steps = Array.from(cell.querySelectorAll('[data-sstep]'));
+      const live = cell.querySelector('.syncLive');
+      const play = cell.querySelector('.syncPlay');
+      return {
+        plusOff: steps.filter(b => parseFloat(b.dataset.sstep) > 0).every(b => b.disabled),
+        minusOn: steps.filter(b => parseFloat(b.dataset.sstep) < 0).every(b => !b.disabled),
+        lit: live.classList.contains('live'),
+        sameW: Math.abs(live.getBoundingClientRect().width - play.getBoundingClientRect().width) < 1
+               && live.getBoundingClientRect().width > 60,
+        row3: play.parentNode === live.parentNode && play.parentNode.previousElementSibling.classList.contains('syncSteps'),
+        playing: window.__FAKE.players['p-a'].playing,
+        delay: window.__FAKE.players['p-a'].edge() - window.__FAKE.players['p-a'].getCurrentTime()
+      };
+    });
+    const atLive = await read();
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] [data-sstep="-5"]').click());
+    await sleep(1000);
+    const back = await read();
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncPlay').click());
+    await sleep(500);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncLive').click());
+    await sleep(1000);
+    const again = await read();
+    check('3行目に同じ幅の 止める/流す と LIVE が並び、LIVE端では + を押せない',
+          atLive.row3 && atLive.sameW && atLive.lit && atLive.plusOff && atLive.minusOn,
+          '3行目=' + atLive.row3 + ' / 同じ幅=' + atLive.sameW + ' / LIVE 点灯=' + atLive.lit
+            + ' / + 無効=' + atLive.plusOff + ' / − 有効=' + atLive.minusOn);
+    check('戻すと + を押せ、LIVE で止めていた映像も流れて LIVE端へ戻り、+ はまた押せなくなる',
+          !back.plusOff && !back.lit && back.delay > 4
+            && again.playing && again.delay < 1 && again.lit && again.plusOff,
+          '戻した後 遅れ ' + back.delay.toFixed(1) + '秒 / + 無効=' + back.plusOff + ' / 点灯=' + back.lit
+            + ' → LIVE 後 遅れ ' + again.delay.toFixed(1) + '秒 / 再生中=' + again.playing
+            + ' / + 無効=' + again.plusOff + ' / 点灯=' + again.lit);
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

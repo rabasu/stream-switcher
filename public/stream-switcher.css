@@ -939,13 +939,20 @@ body.syncMode #diag{visibility:hidden;}
 }
 .syncCtl{display:flex;align-items:center;gap:10px;font-size:.8rem;min-width:0;}
 .syncName{font-weight:800;letter-spacing:.02em;color:var(--sColor);}
-.syncPlay{
-  flex-shrink:0;width:32px;height:32px;padding:0;border-radius:50%;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
+.syncActs{display:flex;gap:10px;justify-content:center;}
+/* 止める / 流す と LIVE は同じ幅。± より一回り大きく、横に長め */
+.syncPlay,.syncLive{
+  flex:0 0 112px;height:34px;padding:0 12px;border-radius:6px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;
   background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);
+  font-size:.78rem;font-weight:800;letter-spacing:.04em;
 }
 .syncPlay:hover{border-color:var(--sColor);}
-.syncPlay:disabled{opacity:.3;cursor:default;}
+.syncPlay:disabled,.syncLive:disabled{opacity:.3;cursor:default;}
+.syncLive:hover:not(:disabled){border-color:var(--text);}
+.syncLive.live{background:rgba(229,72,77,.14);border-color:rgba(229,72,77,.55);color:var(--live);}
+.syncLive.live .liveDot{opacity:1;animation:pulse 1.6s infinite;}
+.syncLive.live:hover{border-color:var(--live);}
 .syncPlay .iconPlay{display:none;}
 .syncCell.paused .syncPlay .iconPause{display:none;}
 .syncCell.paused .syncPlay .iconPlay{display:block;}

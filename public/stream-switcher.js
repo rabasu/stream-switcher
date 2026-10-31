@@ -1481,7 +1481,7 @@ function buildSyncCells(){
     pos.className = 'syncPos';
     const diff = document.createElement('span');
     diff.className = 'syncDiff';
-    ctl.append(name, play, pos, diff);
+    ctl.append(name, pos, diff);
 
     const bar = document.createElement('input');
     bar.type = 'range';
@@ -1519,7 +1519,17 @@ function buildSyncCells(){
       steps.appendChild(b);
     });
 
-    cell.append(video, ctl, bar, ticks, steps);
+    // 3行目: 止める / 流す と LIVE。いつもの画面と同じく、文字で分かる場所に置く
+    const acts = document.createElement('div');
+    acts.className = 'syncActs';
+    const live = document.createElement('button');
+    live.type = 'button';
+    live.className = 'syncLive';
+    live.innerHTML = '<span class="liveDot"></span>LIVE';
+    live.addEventListener('click', () => syncLive(k));
+    acts.append(play, live);
+
+    cell.append(video, ctl, bar, ticks, steps, acts);
     grid.appendChild(cell);
   });
 }
@@ -1535,6 +1545,24 @@ function syncSeek(k, t){
   transportSeq++;
   try{ p.seekTo(t, true); }catch(e){ return; }
   syncHold[k] = {t: t, wall: performance.now()};
+  markCommand();
+  renderSync();
+}
+/* その映像だけ LIVE端へ。推定は使わず、はるか先を指してプレーヤー側の
+   クランプで着地させる（goLive と同じ）。止めていたら流す */
+function syncLive(k){
+  const p = players[k];
+  const cur = playerTime(k);
+  if(!p || !ready[k] || !seekable(k) || isArchive(k) || cur === null) return;
+  syncTick();
+  transportSeq++;
+  try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){ return; }
+  syncHold[k] = {t: liveEdge(k), wall: performance.now()};
+  if(syncPaused[k]){
+    syncPaused[k] = false;
+    try{ p.playVideo(); }catch(e){}
+  }
+  audioUnlocked = true;
   markCommand();
   renderSync();
 }
@@ -1557,7 +1585,7 @@ function layoutSync(){
   const narrow = innerWidth <= 700;
   const cols = narrow ? 1 : (n >= 3 && innerWidth < 1100 ? 2 : Math.max(1, n));
   const rows = Math.ceil(n / cols);
-  const gap = 16, ctlH = 112;
+  const gap = 16, ctlH = 140;   // 映像の下（名前・バー・目盛り・±・止める/LIVE）の高さ
   const availW = grid.clientWidth || (innerWidth - 40);
   const availH = innerHeight - head.getBoundingClientRect().height - 56;
   let w = (availW - gap * (cols - 1)) / cols;
@@ -1634,7 +1662,16 @@ function renderSync(){
       ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、止めたり動かしたりできません'
       : (syncPaused[k] ? SRC_LABEL[k] + ' を流す' : SRC_LABEL[k] + ' を止める');
     play.setAttribute('aria-label', play.title);
-    cell.querySelectorAll('[data-sstep]').forEach(b => b.disabled = !canSeek);
+    // ライブで LIVE端に追いついているあいだは、進める側は行き先が無い
+    const atLive = !archive && liveEdge(k) - shownPos < LIVE_EPS;
+    cell.querySelectorAll('[data-sstep]').forEach(b =>
+      b.disabled = !canSeek || (atLive && parseFloat(b.dataset.sstep) > 0));
+    const live = cell.querySelector('.syncLive');
+    live.disabled = !canSeek || archive;
+    live.classList.toggle('live', atLive);
+    live.title = archive ? 'アーカイブには LIVE がありません'
+      : !canSeek ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、常に LIVE です'
+      : SRC_LABEL[k] + ' を LIVE の最先端へ';
 
     // 位置の読み。ライブは LIVE からの遅れ、アーカイブは経過 / 全体
     const posEl = cell.querySelector('.syncPos');
@@ -1643,7 +1680,7 @@ function renderSync(){
       posEl.textContent = fmt(shownPos) + (end > 0 ? ' / ' + fmt(end) : '');
     }else{
       const delay = liveEdge(k) - shownPos;
-      posEl.textContent = delay < LIVE_EPS ? 'LIVE' : 'LIVE − ' + fmt(delay);
+      posEl.textContent = atLive ? 'LIVE' : 'LIVE − ' + fmt(delay);
     }
 
     // 基準（いちばん進んでいる映像）との差。同じ種類が2本以上あるときだけ出す
