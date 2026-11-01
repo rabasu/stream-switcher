@@ -1093,6 +1093,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await sleep(1500);
     await page.evaluate(() => document.getElementById('syncOpenBtn').click());
     await sleep(300);
+    const range = await page.evaluate(() => {
+      const c = document.querySelector('.syncCell[data-sk="a"]');
+      const b = c.querySelector('.syncBar');
+      return b.min + '〜' + b.max + ' [' + Array.from(c.querySelectorAll('.syncTicks span')).map(s => s.textContent) + ']';
+    });
+    check('アーカイブのバーは前後30秒のまま', range === '-30〜30 [−30秒,−15,0,+15,+30秒]', range);
     await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] [data-sstep="5"]').click());
     await sleep(800);
     const pos = () => page.evaluate(() => ({
@@ -1340,9 +1346,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         noLiveText: Array.from(document.querySelectorAll('.syncCell:not([hidden])'))
           .every(c => c.querySelector('.syncPos').textContent.indexOf('LIVE') < 0
                    && c.querySelector('.syncDiff').textContent.indexOf('LIVE') < 0),
-        plusOn: Array.from(cell.querySelectorAll('[data-sstep]')).every(b => !b.disabled)
+        plusOn: Array.from(cell.querySelectorAll('[data-sstep]')).every(b => !b.disabled),
+        range: cell.querySelector('.syncBar').min + '〜' + cell.querySelector('.syncBar').max
+               + ' [' + Array.from(cell.querySelectorAll('.syncTicks span')).map(s => s.textContent) + ']',
+        // 先頭の映像はバーの 0 に居て、その右だけ少し赤い（行けない範囲）
+        red: (() => {
+          const m = /rgba\(229, ?72, ?77[^%]*?\)\s*([\d.]+)%/.exec(document.querySelector('.syncCell[data-sk="main"] .syncBar').style.background);
+          return m ? parseFloat(m[1]) : null;
+        })()
       };
     });
+    check('ライブのバーは30秒戻す側だけで、右端に少しだけ行けない範囲（赤）を残す',
+          layout.range === '-30〜3 [−30秒,−20,−10,0]' && layout.red !== null && layout.red > 85 && layout.red < 95,
+          layout.range + ' / 赤の始まり ' + layout.red + '%');
     check('3行目に同じ幅の 止める/流す と LIVE が並び、LIVE からの遅れは出さず、± はどれも押せる',
           layout.row3 && layout.sameW && layout.noLiveText && layout.plusOn,
           '3行目=' + layout.row3 + ' / 同じ幅=' + layout.sameW + ' / LIVE の表示なし=' + layout.noLiveText

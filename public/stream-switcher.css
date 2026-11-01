@@ -972,9 +972,10 @@ body.syncMode #diag{visibility:hidden;}
 }
 .syncBar:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 3px var(--sColor),0 0 0 6px rgba(255,255,255,.35);}
 .syncTicks{
-  display:flex;justify-content:space-between;font-size:.62rem;color:var(--sub);
+  position:relative;height:1.3em;font-size:.62rem;color:var(--sub);
   font-variant-numeric:tabular-nums;
 }
+.syncTicks span{position:absolute;top:0;white-space:nowrap;}
 .syncSteps{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
 .syncSteps button{
   min-width:52px;height:28px;padding:0 8px;border-radius:5px;cursor:pointer;

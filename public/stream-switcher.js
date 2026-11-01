@@ -1390,8 +1390,41 @@ function fmt(sec){
    差を保ったまま動く。アーカイブは共通の軸が無いので位置をそのまま残し、
    まとめてシークでズレを保つ（原則5）。
    ================================================================ */
-const SYNC_HALF = 30;          // バーの片側の幅(秒)。全幅で60秒
+const SYNC_HALF = 30;          // バーの片側の幅(秒)。アーカイブは全幅で60秒
+/* ライブは開いた位置（いちばん進んでいる映像なら LIVE端）より先へ行けない。
+   ±30秒のままだと右半分がまるごと行けない範囲になるので、右は少しだけにする。
+   少し残すのは、行けない範囲を赤く見せる前の見た目から急に変えないため */
+const SYNC_LIVE_AHEAD = 3;
 const SYNC_RECENTER = 27;      // つまみがここまで端へ寄ったら、そのバーを中央へ戻す
+const SYNC_TICKS = {
+  live: [[-30, '−30秒'], [-20, '−20'], [-10, '−10'], [0, '0']],
+  archive: [[-30, '−30秒'], [-15, '−15'], [0, '0'], [15, '+15'], [30, '+30秒']]
+};
+function syncRange(k){ return isArchive(k) ? [-SYNC_HALF, SYNC_HALF] : [-SYNC_HALF, SYNC_LIVE_AHEAD]; }
+/* バーの範囲と目盛りを、ライブ / アーカイブに合わせる。種類が分かるのが
+   読み込みより遅れることもあるので、描くたびに確かめる */
+function applySyncRange(k, cell){
+  const kind = isArchive(k) ? 'archive' : 'live';
+  if(cell.dataset.kind === kind) return;
+  cell.dataset.kind = kind;
+  const [lo, hi] = syncRange(k);
+  const bar = cell.querySelector('.syncBar');
+  bar.min = String(lo);
+  bar.max = String(hi);
+  bar.setAttribute('aria-label', SRC_LABEL[k] + ' の再生位置（'
+    + (kind === 'archive' ? '前後' + SYNC_HALF + '秒' : SYNC_HALF + '秒戻せる') + '）');
+  const ticks = cell.querySelector('.syncTicks');
+  ticks.replaceChildren();
+  SYNC_TICKS[kind].forEach(([v, t]) => {
+    const f = (v - lo) / (hi - lo);
+    const el = document.createElement('span');
+    el.textContent = t;
+    // つまみの中心が動く幅（両端につまみの半径 8px ずつ）に合わせて置く
+    el.style.left = 'calc(8px + (100% - 16px) * ' + f + ')';
+    el.style.transform = f === 0 ? 'translateX(-8px)' : f === 1 ? 'translateX(calc(-100% + 8px))' : 'translateX(-50%)';
+    ticks.appendChild(el);
+  });
+}
 const SYNC_HOLD_MS = 700;      // シーク直後、実測が追いつくまで要求した位置で描く
 const SYNC_STEPS = [-5, -1, -0.1, 0.1, 1, 5];
 let syncOpen = false;
@@ -1495,11 +1528,7 @@ function buildSyncCells(){
     const bar = document.createElement('input');
     bar.type = 'range';
     bar.className = 'syncBar';
-    bar.min = String(-SYNC_HALF);
-    bar.max = String(SYNC_HALF);
     bar.step = '0.1';
-    bar.value = '0';
-    bar.setAttribute('aria-label', SRC_LABEL[k] + ' の再生位置（前後' + SYNC_HALF + '秒）');
     bar.addEventListener('input', () => { syncDrag = k; renderSync(); });
     bar.addEventListener('change', () => {
       syncDrag = null;
@@ -1507,11 +1536,6 @@ function buildSyncCells(){
     });
     const ticks = document.createElement('div');
     ticks.className = 'syncTicks';
-    ['−30秒', '−15', '0', '+15', '+30秒'].forEach(t => {
-      const s = document.createElement('span');
-      s.textContent = t;
-      ticks.appendChild(s);
-    });
 
     const steps = document.createElement('div');
     steps.className = 'syncSteps';
@@ -1536,6 +1560,8 @@ function buildSyncCells(){
     acts.append(play, live);
 
     cell.append(video, ctl, bar, ticks, steps, acts);
+    applySyncRange(k, cell);
+    bar.value = '0';
     grid.appendChild(cell);
   });
 }
@@ -1677,18 +1703,20 @@ function renderSync(){
       if(now - hold.wall > SYNC_HOLD_MS || Math.abs(cur - hold.t) < 0.3) syncHold[k] = null;
       else shownPos = hold.t + (syncPaused[k] ? 0 : (now - hold.wall) / 1000 * (actualRate() || 1));
     }
+    applySyncRange(k, cell);
+    const [lo, hi] = syncRange(k);
     let rel = shownPos - syncCenter(k);
-    if(k !== syncDrag && !syncHold[k] && Math.abs(rel) > SYNC_RECENTER){
+    if(k !== syncDrag && !syncHold[k] && (rel < -SYNC_RECENTER || rel > Math.min(hi, SYNC_RECENTER))){
       syncAnchor[k] += rel;      // 端まで寄った。このバーだけ中央へ戻す
       rel = 0;
     }
-    if(k !== syncDrag) bar.value = String(Math.max(-SYNC_HALF, Math.min(SYNC_HALF, rel)));
+    if(k !== syncDrag) bar.value = String(Math.max(lo, Math.min(hi, rel)));
     bar.disabled = !canSeek;
     // ライブで LIVE端より先は行けない範囲。赤く塗って見せる
     let limitPct = 100;
     if(!archive){
       const edge = liveEdge(k);
-      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) + SYNC_HALF) / (2 * SYNC_HALF) * 100));
+      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) - lo) / (hi - lo) * 100));
     }
     bar.style.background = limitPct >= 100 ? '' :
       'linear-gradient(to right, #2b3340 0%, #2b3340 ' + limitPct + '%, rgba(229,72,77,.45) '
