@@ -1390,8 +1390,41 @@ function fmt(sec){
    差を保ったまま動く。アーカイブは共通の軸が無いので位置をそのまま残し、
    まとめてシークでズレを保つ（原則5）。
    ================================================================ */
-const SYNC_HALF = 30;          // バーの片側の幅(秒)。全幅で60秒
+const SYNC_HALF = 30;          // バーの片側の幅(秒)。アーカイブは全幅で60秒
+/* ライブは開いた位置（いちばん進んでいる映像なら LIVE端）より先へ行けない。
+   ±30秒のままだと右半分がまるごと行けない範囲になるので、右は少しだけにする。
+   少し残すのは、行けない範囲を赤く見せる前の見た目から急に変えないため */
+const SYNC_LIVE_AHEAD = 3;
 const SYNC_RECENTER = 27;      // つまみがここまで端へ寄ったら、そのバーを中央へ戻す
+const SYNC_TICKS = {
+  live: [[-30, '−30秒'], [-20, '−20'], [-10, '−10'], [0, '0']],
+  archive: [[-30, '−30秒'], [-15, '−15'], [0, '0'], [15, '+15'], [30, '+30秒']]
+};
+function syncRange(k){ return isArchive(k) ? [-SYNC_HALF, SYNC_HALF] : [-SYNC_HALF, SYNC_LIVE_AHEAD]; }
+/* バーの範囲と目盛りを、ライブ / アーカイブに合わせる。種類が分かるのが
+   読み込みより遅れることもあるので、描くたびに確かめる */
+function applySyncRange(k, cell){
+  const kind = isArchive(k) ? 'archive' : 'live';
+  if(cell.dataset.kind === kind) return;
+  cell.dataset.kind = kind;
+  const [lo, hi] = syncRange(k);
+  const bar = cell.querySelector('.syncBar');
+  bar.min = String(lo);
+  bar.max = String(hi);
+  bar.setAttribute('aria-label', SRC_LABEL[k] + ' の再生位置（'
+    + (kind === 'archive' ? '前後' + SYNC_HALF + '秒' : SYNC_HALF + '秒戻せる') + '）');
+  const ticks = cell.querySelector('.syncTicks');
+  ticks.replaceChildren();
+  SYNC_TICKS[kind].forEach(([v, t]) => {
+    const f = (v - lo) / (hi - lo);
+    const el = document.createElement('span');
+    el.textContent = t;
+    // つまみの中心が動く幅（両端につまみの半径 8px ずつ）に合わせて置く
+    el.style.left = 'calc(8px + (100% - 16px) * ' + f + ')';
+    el.style.transform = f === 0 ? 'translateX(-8px)' : f === 1 ? 'translateX(calc(-100% + 8px))' : 'translateX(-50%)';
+    ticks.appendChild(el);
+  });
+}
 const SYNC_HOLD_MS = 700;      // シーク直後、実測が追いつくまで要求した位置で描く
 const SYNC_STEPS = [-5, -1, -0.1, 0.1, 1, 5];
 let syncOpen = false;
@@ -1416,6 +1449,15 @@ function syncTick(){
   syncClockWall = now;
 }
 function syncCenter(k){ return syncAnchor[k] + syncClock; }
+/* いまの位置。シーク直後はプレーヤーの実測がまだ追いついていないので、
+   要求した位置から進めた値を使う（続けて押したボタンが古い位置から数えないように） */
+function syncPosNow(k){
+  const cur = playerTime(k);
+  const hold = syncHold[k];
+  const now = performance.now();
+  if(cur === null || !hold || now - hold.wall > SYNC_HOLD_MS) return cur;
+  return hold.t + (syncPaused[k] ? 0 : (now - hold.wall) / 1000 * (actualRate() || 1));
+}
 /* 開いたときの進み具合。ライブは LIVE端からの位置（trim は混ぜない）。
    それまでに付いていたズレはここに入る。アーカイブは開始時刻が動画ごとに
    違い、位置を比べても意味が無いので 0（＝画面で動かした量だけを数える） */
@@ -1481,16 +1523,12 @@ function buildSyncCells(){
     pos.className = 'syncPos';
     const diff = document.createElement('span');
     diff.className = 'syncDiff';
-    ctl.append(name, play, pos, diff);
+    ctl.append(name, pos, diff);
 
     const bar = document.createElement('input');
     bar.type = 'range';
     bar.className = 'syncBar';
-    bar.min = String(-SYNC_HALF);
-    bar.max = String(SYNC_HALF);
     bar.step = '0.1';
-    bar.value = '0';
-    bar.setAttribute('aria-label', SRC_LABEL[k] + ' の再生位置（前後' + SYNC_HALF + '秒）');
     bar.addEventListener('input', () => { syncDrag = k; renderSync(); });
     bar.addEventListener('change', () => {
       syncDrag = null;
@@ -1498,11 +1536,6 @@ function buildSyncCells(){
     });
     const ticks = document.createElement('div');
     ticks.className = 'syncTicks';
-    ['−30秒', '−15', '0', '+15', '+30秒'].forEach(t => {
-      const s = document.createElement('span');
-      s.textContent = t;
-      ticks.appendChild(s);
-    });
 
     const steps = document.createElement('div');
     steps.className = 'syncSteps';
@@ -1512,14 +1545,23 @@ function buildSyncCells(){
       b.dataset.sstep = String(d);
       b.textContent = (d < 0 ? '−' : '+') + Math.abs(d) + 's';
       b.title = SRC_LABEL[k] + ' を ' + Math.abs(d) + '秒 ' + (d < 0 ? '戻す' : '進める');
-      b.addEventListener('click', () => {
-        const cur = playerTime(k);
-        if(cur !== null) syncSeek(k, cur + d);
-      });
+      b.addEventListener('click', () => syncStep(k, d));
       steps.appendChild(b);
     });
 
-    cell.append(video, ctl, bar, ticks, steps);
+    // 3行目: 止める / 流す と LIVE。いつもの画面と同じく、文字で分かる場所に置く
+    const acts = document.createElement('div');
+    acts.className = 'syncActs';
+    const live = document.createElement('button');
+    live.type = 'button';
+    live.className = 'syncLive';
+    live.innerHTML = '<span class="liveDot"></span>LIVE';
+    live.addEventListener('click', () => syncLive(k));
+    acts.append(play, live);
+
+    cell.append(video, ctl, bar, ticks, steps, acts);
+    applySyncRange(k, cell);
+    bar.value = '0';
     grid.appendChild(cell);
   });
 }
@@ -1535,6 +1577,57 @@ function syncSeek(k, t){
   transportSeq++;
   try{ p.seekTo(t, true); }catch(e){ return; }
   syncHold[k] = {t: t, wall: performance.now()};
+  markCommand();
+  renderSync();
+}
+/* ± ボタン。この画面で決めたいのは映像どうしの差だけなので、+X は
+   「その映像を、他の映像に比べて X 秒進める」。完了ではいちばん進んでいる
+   映像を LIVE へ送り、他はその差を保って同じだけ進めるので、各映像が LIVE から
+   何秒遅れているかは結果に関係しない。
+   ライブは LIVE端より先へ行けないので、まず自分をいちばん進んでいる映像の
+   位置まで進め、足りないぶんは他の映像を戻して差を作る（どちらでも差は同じ）。
+   LIVE端の推定は使わない。推定の揺れで押せたり押せなかったりしないように。
+   −X は自分を戻すだけ。アーカイブは終端まで余裕があるので自分を動かす */
+function syncPlusPlan(k, d){
+  const cur = syncPosNow(k);
+  if(cur === null || isArchive(k)) return null;
+  const others = syncTargets().filter(o => o !== k && !isArchive(o));
+  if(!others.length) return {self: seekable(k) ? d : 0, back: 0, others: []};   // 比べる相手が居ない
+  const aheadK = syncAhead(k, cur);
+  const top = Math.max.apply(null, others.map(o => syncAhead(o, syncPosNow(o))));
+  // 巻き戻せない映像は自分を動かせない（LIVE端に居るので、差は他を戻して作る）
+  const self = seekable(k) ? Math.min(d, Math.max(0, top - aheadK)) : 0;
+  let back = d - self;
+  // 巻き戻せない映像は戻せない。そのときは自分が追いつけるぶんだけ
+  if(back > 0.001 && !others.every(seekable)) back = 0;
+  return {self: self, back: back > 0.001 ? back : 0, others: others};
+}
+function syncStep(k, d){
+  const cur = syncPosNow(k);
+  if(cur === null) return;
+  const plan = d > 0 ? syncPlusPlan(k, d) : null;
+  if(!plan){ syncSeek(k, cur + d); return; }
+  if(plan.self > 0.001) syncSeek(k, cur + plan.self);
+  if(plan.back > 0) plan.others.forEach(o => {
+    const t = syncPosNow(o);
+    if(t !== null) syncSeek(o, t - plan.back);
+  });
+}
+/* その映像だけ LIVE端へ。推定は使わず、はるか先を指してプレーヤー側の
+   クランプで着地させる（goLive と同じ）。止めていたら流す */
+function syncLive(k){
+  const p = players[k];
+  const cur = playerTime(k);
+  if(!p || !ready[k] || !seekable(k) || isArchive(k) || cur === null) return;
+  syncTick();
+  transportSeq++;
+  try{ p.seekTo(cur + LIVE_OVERSHOOT, true); }catch(e){ return; }
+  syncHold[k] = {t: liveEdge(k), wall: performance.now()};
+  if(syncPaused[k]){
+    syncPaused[k] = false;
+    try{ p.playVideo(); }catch(e){}
+  }
+  audioUnlocked = true;
   markCommand();
   renderSync();
 }
@@ -1557,7 +1650,7 @@ function layoutSync(){
   const narrow = innerWidth <= 700;
   const cols = narrow ? 1 : (n >= 3 && innerWidth < 1100 ? 2 : Math.max(1, n));
   const rows = Math.ceil(n / cols);
-  const gap = 16, ctlH = 112;
+  const gap = 16, ctlH = 140;   // 映像の下（名前・バー・目盛り・±・止める/LIVE）の高さ
   const availW = grid.clientWidth || (innerWidth - 40);
   const availH = innerHeight - head.getBoundingClientRect().height - 56;
   let w = (availW - gap * (cols - 1)) / cols;
@@ -1610,18 +1703,20 @@ function renderSync(){
       if(now - hold.wall > SYNC_HOLD_MS || Math.abs(cur - hold.t) < 0.3) syncHold[k] = null;
       else shownPos = hold.t + (syncPaused[k] ? 0 : (now - hold.wall) / 1000 * (actualRate() || 1));
     }
+    applySyncRange(k, cell);
+    const [lo, hi] = syncRange(k);
     let rel = shownPos - syncCenter(k);
-    if(k !== syncDrag && !syncHold[k] && Math.abs(rel) > SYNC_RECENTER){
+    if(k !== syncDrag && !syncHold[k] && (rel < -SYNC_RECENTER || rel > Math.min(hi, SYNC_RECENTER))){
       syncAnchor[k] += rel;      // 端まで寄った。このバーだけ中央へ戻す
       rel = 0;
     }
-    if(k !== syncDrag) bar.value = String(Math.max(-SYNC_HALF, Math.min(SYNC_HALF, rel)));
+    if(k !== syncDrag) bar.value = String(Math.max(lo, Math.min(hi, rel)));
     bar.disabled = !canSeek;
     // ライブで LIVE端より先は行けない範囲。赤く塗って見せる
     let limitPct = 100;
     if(!archive){
       const edge = liveEdge(k);
-      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) + SYNC_HALF) / (2 * SYNC_HALF) * 100));
+      if(edge > 0) limitPct = Math.max(0, Math.min(100, (edge - syncCenter(k) - lo) / (hi - lo) * 100));
     }
     bar.style.background = limitPct >= 100 ? '' :
       'linear-gradient(to right, #2b3340 0%, #2b3340 ' + limitPct + '%, rgba(229,72,77,.45) '
@@ -1634,17 +1729,26 @@ function renderSync(){
       ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、止めたり動かしたりできません'
       : (syncPaused[k] ? SRC_LABEL[k] + ' を流す' : SRC_LABEL[k] + ' を止める');
     play.setAttribute('aria-label', play.title);
-    cell.querySelectorAll('[data-sstep]').forEach(b => b.disabled = !canSeek);
+    // + は他の映像を戻してでも差を作れるので、押せないのは自分も他も動かせないときだけ
+    cell.querySelectorAll('[data-sstep]').forEach(b => {
+      const d = parseFloat(b.dataset.sstep);
+      if(d < 0){ b.disabled = !canSeek; return; }
+      const plan = syncPlusPlan(k, d);
+      b.disabled = plan ? !(plan.self > 0.001 || plan.back > 0) : !canSeek;
+    });
+    const live = cell.querySelector('.syncLive');
+    live.disabled = !canSeek || archive;
+    live.title = archive ? 'アーカイブには LIVE がありません'
+      : !canSeek ? SRC_LABEL[k] + ' は配信者が巻き戻しを無効にしているため、常に LIVE です'
+      : SRC_LABEL[k] + ' を LIVE の最先端へ';
 
-    // 位置の読み。ライブは LIVE からの遅れ、アーカイブは経過 / 全体
+    // 位置の読み。アーカイブは経過 / 全体。ライブは出さない（この画面で
+    // 決めるのは映像どうしの差だけで、LIVE からの遅れは結果に関係しない）
     const posEl = cell.querySelector('.syncPos');
     if(archive){
       const end = archiveEnd(k);
       posEl.textContent = fmt(shownPos) + (end > 0 ? ' / ' + fmt(end) : '');
-    }else{
-      const delay = liveEdge(k) - shownPos;
-      posEl.textContent = delay < LIVE_EPS ? 'LIVE' : 'LIVE − ' + fmt(delay);
-    }
+    }else posEl.textContent = '';
 
     // 基準（いちばん進んでいる映像）との差。同じ種類が2本以上あるときだけ出す
     const group = archive ? lead.archives : lead.lives;
@@ -1652,7 +1756,7 @@ function renderSync(){
     const diffEl = cell.querySelector('.syncDiff');
     diffEl.classList.toggle('lead', group.length > 1 && k === leader);
     if(group.length < 2 || !leader) diffEl.textContent = '';
-    else if(k === leader) diffEl.textContent = archive ? '基準' : 'LIVE にする';
+    else if(k === leader) diffEl.textContent = '基準';
     else diffEl.textContent = fmtDiff(syncAhead(k, shownPos) - syncAhead(leader));
   });
   if(shapeChanged) layoutSync();

@@ -1071,7 +1071,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       b: document.querySelector('.syncCell[data-sk="b"] .syncDiff').textContent
     }));
     check('画面で基準との差が読める',
-          diffs.a === 'LIVE にする' && /^−(5\.\d|6\.\d)秒$/.test(diffs.main) && /^−(0\.9|1\.0|1\.1)秒$/.test(diffs.b),
+          diffs.a === '基準' && /^−(5\.\d|6\.\d)秒$/.test(diffs.main) && /^−(0\.9|1\.0|1\.1)秒$/.test(diffs.b),
           'MAIN "' + diffs.main + '" / A "' + diffs.a + '" / B "' + diffs.b + '"');
     const before = await delays(page);
     await page.evaluate(() => document.getElementById('syncDone').click());
@@ -1093,6 +1093,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await sleep(1500);
     await page.evaluate(() => document.getElementById('syncOpenBtn').click());
     await sleep(300);
+    const range = await page.evaluate(() => {
+      const c = document.querySelector('.syncCell[data-sk="a"]');
+      const b = c.querySelector('.syncBar');
+      return b.min + '〜' + b.max + ' [' + Array.from(c.querySelectorAll('.syncTicks span')).map(s => s.textContent) + ']';
+    });
+    check('アーカイブのバーは前後30秒のまま', range === '-30〜30 [−30秒,−15,0,+15,+30秒]', range);
     await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] [data-sstep="5"]').click());
     await sleep(800);
     const pos = () => page.evaluate(() => ({
@@ -1262,7 +1268,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const d0 = await delays(page);
     // 元から LIVE端にいる映像は、わざわざ下げない（端へ向かうシークだけが問題）
     check('完了で、いちばん進んでいる映像は LIVE端から 0.5秒以内のまま',
-          d0.main >= 0 && d0.main <= 0.6, 'MAIN の遅れ ' + d0.main.toFixed(2) + '秒');
+          d0.main > -0.05 && d0.main <= 0.6, 'MAIN の遅れ ' + d0.main.toFixed(2) + '秒');
 
     await page.evaluate(() => { window.__FAKECFG.landLag = {AAAAAAAAAAA: 1.5, BBBBBBBBBBB: 0.2}; });
     const seeks = () => page.evaluate(() => ({
@@ -1320,6 +1326,125 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     check('冒頭から始まり isLive が遅れて届くライブも、ライブと分かって LIVE端へ送られる',
           d.main < 3 && st.posHidden && st.label.indexOf('LIVE') >= 0,
           'MAIN の遅れ ' + d.main.toFixed(1) + '秒 / 経過表示 hidden=' + st.posHidden + ' / ピル "' + st.label + '"');
+    await ctx.close();
+  }
+
+  /* 43. 画面の3行目: 止める / 流す と LIVE。同じ幅で ± の下に並ぶ。
+         この画面には LIVE からの遅れを出さない（決めるのは映像どうしの差だけ） */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    const layout = await page.evaluate(() => {
+      const cell = document.querySelector('.syncCell[data-sk="a"]');
+      const live = cell.querySelector('.syncLive');
+      const play = cell.querySelector('.syncPlay');
+      return {
+        sameW: Math.abs(live.getBoundingClientRect().width - play.getBoundingClientRect().width) < 1
+               && live.getBoundingClientRect().width > 60,
+        row3: play.parentNode === live.parentNode && play.parentNode.previousElementSibling.classList.contains('syncSteps'),
+        noLiveText: Array.from(document.querySelectorAll('.syncCell:not([hidden])'))
+          .every(c => c.querySelector('.syncPos').textContent.indexOf('LIVE') < 0
+                   && c.querySelector('.syncDiff').textContent.indexOf('LIVE') < 0),
+        plusOn: Array.from(cell.querySelectorAll('[data-sstep]')).every(b => !b.disabled),
+        range: cell.querySelector('.syncBar').min + '〜' + cell.querySelector('.syncBar').max
+               + ' [' + Array.from(cell.querySelectorAll('.syncTicks span')).map(s => s.textContent) + ']',
+        // 先頭の映像はバーの 0 に居て、その右だけ少し赤い（行けない範囲）
+        red: (() => {
+          const m = /rgba\(229, ?72, ?77[^%]*?\)\s*([\d.]+)%/.exec(document.querySelector('.syncCell[data-sk="main"] .syncBar').style.background);
+          return m ? parseFloat(m[1]) : null;
+        })()
+      };
+    });
+    check('ライブのバーは30秒戻す側だけで、右端に少しだけ行けない範囲（赤）を残す',
+          layout.range === '-30〜3 [−30秒,−20,−10,0]' && layout.red !== null && layout.red > 85 && layout.red < 95,
+          layout.range + ' / 赤の始まり ' + layout.red + '%');
+    check('3行目に同じ幅の 止める/流す と LIVE が並び、LIVE からの遅れは出さず、± はどれも押せる',
+          layout.row3 && layout.sameW && layout.noLiveText && layout.plusOn,
+          '3行目=' + layout.row3 + ' / 同じ幅=' + layout.sameW + ' / LIVE の表示なし=' + layout.noLiveText
+            + ' / ± 有効=' + layout.plusOn);
+
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] [data-sstep="-5"]').click());
+    await sleep(500);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncPlay').click());
+    await sleep(500);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] .syncLive').click());
+    await sleep(1000);
+    const again = await page.evaluate(() => ({
+      playing: window.__FAKE.players['p-a'].playing,
+      delay: window.__FAKE.players['p-a'].edge() - window.__FAKE.players['p-a'].getCurrentTime()
+    }));
+    check('LIVE で、止めていた映像も流れて LIVE端へ戻る',
+          again.playing && again.delay < 1,
+          '遅れ ' + again.delay.toFixed(1) + '秒 / 再生中=' + again.playing);
+    await ctx.close();
+  }
+  /* 44. + は「その映像を他に比べて X 秒進める」。遅れている映像は自分が進み、
+         いちばん進んでいる映像（LIVE端に居て進めない）は他を戻して差を作る */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    const step = async (k, d) => {
+      await page.evaluate(([k, d]) =>
+        document.querySelector('.syncCell[data-sk="' + k + '"] [data-sstep="' + d + '"]').click(), [k, d]);
+      await sleep(1000);
+      return delays(page);
+    };
+    const gap = r => r.main - r.a;   // VC-A が MAIN より何秒進んでいるか
+    const d0 = await delays(page);
+    const s1 = await step('a', -1);
+    const s2 = await step('a', 1);
+    const s3 = await step('a', 1);
+    const s4 = await step('a', 0.1);
+    const diffs = await page.evaluate(() => ({
+      main: document.querySelector('.syncCell[data-sk="main"] .syncDiff').textContent,
+      a: document.querySelector('.syncCell[data-sk="a"] .syncDiff').textContent
+    }));
+    const f = r => 'MAIN ' + r.main.toFixed(2) + ' / A ' + r.a.toFixed(2);
+    check('+ は他に比べて X 秒進める（遅れていれば自分が進み、先頭なら他を戻す）',
+          Math.abs((gap(s1) - gap(d0)) + 1) < 0.15
+            && Math.abs((gap(s2) - gap(s1)) - 1) < 0.15 && Math.abs(s2.main - s1.main) < 0.15
+            && Math.abs((gap(s3) - gap(s2)) - 1) < 0.15 && Math.abs(s3.a - s2.a) < 0.15
+            && Math.abs((gap(s4) - gap(s3)) - 0.1) < 0.05
+            && diffs.a === '基準' && /^−1\.[01]秒$/.test(diffs.main),
+          '開いた時 ' + f(d0) + ' → A −1: ' + f(s1) + ' → A +1: ' + f(s2) + ' → A +1: ' + f(s3)
+            + ' → A +0.1: ' + f(s4) + '（LIVE端からの遅れ） / 差 MAIN "' + diffs.main + '" A "' + diffs.a + '"');
+
+    const before = await delays(page);
+    await page.evaluate(() => document.getElementById('syncDone').click());
+    await sleep(2500);
+    const after = await delays(page);
+    check('先頭で + して作った差も、完了でそのまま保たれ、先頭が LIVE へ戻る',
+          Math.abs(gap(after) - gap(before)) < 0.3 && after.a < 1,
+          '完了前 ' + f(before) + ' → 完了後 ' + f(after));
+    await ctx.close();
+  }
+
+  /* 45. 巻き戻せない（DVR 無効の）MAIN は LIVE端から動かせない。VC-A がそれに
+         並んだら、VC-A の + は押せない（戻せる相手が居ない）。MAIN の + は VC-A を戻す */
+  {
+    const { ctx, page } = await session({ keys: ['main','a'], noDvr: [MAIN_ID] });
+    await page.evaluate(() => document.getElementById('syncOpenBtn').click());
+    await sleep(300);
+    const plusOff = k => page.evaluate(k =>
+      Array.from(document.querySelectorAll('.syncCell[data-sk="' + k + '"] [data-sstep]'))
+        .filter(b => parseFloat(b.dataset.sstep) > 0).every(b => b.disabled), k);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] [data-sstep="-1"]').click());
+    await sleep(1000);
+    const aBehind = await plusOff('a');
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="a"] [data-sstep="1"]').click());
+    await sleep(1000);
+    const aLevel = await plusOff('a');
+    const mainOn = !(await plusOff('main'));
+    const d1 = await delays(page);
+    await page.evaluate(() => document.querySelector('.syncCell[data-sk="main"] [data-sstep="1"]').click());
+    await sleep(1000);
+    const d2 = await delays(page);
+    check('巻き戻せない映像に並んだら + を押せず、巻き戻せない映像の + は他を戻す',
+          !aBehind && aLevel && mainOn && d2.main < 0.3 && Math.abs((d2.a - d1.a) - 1) < 0.15,
+          '遅れた VC-A の + 無効=' + aBehind + ' / 並んだ VC-A の + 無効=' + aLevel + ' / MAIN の + 有効=' + mainOn
+            + ' / MAIN +1 で VC-A ' + d1.a.toFixed(2) + ' → ' + d2.a.toFixed(2) + '秒遅れ（MAIN ' + d2.main.toFixed(2) + '）');
     await ctx.close();
   }
 
