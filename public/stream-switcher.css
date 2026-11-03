@@ -59,35 +59,205 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 /* 導入画面ではまだ再生していない */
 #splash:not(.gone) ~ #unmuteChip{display:none;}
 
-/* ===== 導入画面 ===== */
+/* ===== 導入画面（LP） =====
+   初見の人に「何ができるか」を伝える画面を兼ねる。中身が縦に長いので
+   中央寄せ（align-items:center）にはせず、上から流してスクロールさせる
+   （中央寄せだと、はみ出した上端がスクロールでも見えなくなる） */
 #splash{
   position:fixed;inset:0;z-index:16;background:#07090c;
-  display:flex;align-items:center;justify-content:center;padding:24px;overflow-y:auto;
+  display:block;padding:40px 24px 56px;overflow-y:auto;
 }
 #splash.gone{display:none;}
-.card{max-width:600px;width:100%;}
-.card > h1,.card > h2{margin:0 0 6px;font-size:1.5rem;font-weight:800;letter-spacing:.02em;}
-.card > h1 span,.card > h2 span{color:var(--a);}
-.card .lead{margin:0 0 22px;color:var(--sub);font-size:.88rem;line-height:1.7;}
-.card ol{margin:0;padding-left:1.3em;color:var(--sub);font-size:.84rem;line-height:1.9;}
-.card ol b{color:var(--text);}
-.card ol code{background:#0b0e13;padding:1px 6px;border-radius:4px;color:var(--a);
+.card{max-width:1040px;width:100%;margin:0 auto;}
+/* file:// 警告（JS がカードの中身ごと差し替える）用 */
+.card > h2{margin:0 0 6px;font-size:1.5rem;font-weight:800;letter-spacing:.02em;}
+.card > .lead{margin:0 0 22px;color:var(--sub);font-size:.88rem;line-height:1.7;}
+.card code{background:#0b0e13;padding:1px 6px;border-radius:4px;color:var(--a);
   font-family:ui-monospace,monospace;font-size:.9em;}
+
+/* --- ヒーロー: 広い画面は [コピー | 画面イメージ] / [入力欄] の2段 --- */
+.hero{
+  display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);
+  grid-template-areas:"copy mock" "form form";
+  gap:28px 48px;align-items:center;
+}
+.heroCopy{grid-area:copy;}
+.heroMock{grid-area:mock;}
+.heroForm{grid-area:form;}
+.brand{margin:0 0 18px;font-size:1rem;font-weight:800;letter-spacing:.04em;}
+.brand span{color:var(--a);}
+.hero h1{
+  margin:0 0 16px;font-size:2.5rem;line-height:1.3;font-weight:800;letter-spacing:.01em;
+}
+/* 「分けられる」を MAIN→VC-A の色で。下の画面イメージと同じ組み合わせ */
+.hero h1 em{
+  font-style:normal;
+  background:linear-gradient(90deg,var(--main),var(--a));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero .lead{margin:0 0 18px;color:var(--sub);font-size:.95rem;line-height:1.9;}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none;}
+.badges li{
+  padding:5px 12px;border:1px solid var(--line);border-radius:999px;
+  font-size:.76rem;font-weight:700;color:var(--text);background:rgba(255,255,255,.03);
+}
+
+/* 画面イメージ。実際の画面（右上の音声表示 + 下の操作バー）を簡略化したもの */
+.heroMock{margin:0;}
+.mockScreen{
+  position:relative;aspect-ratio:16/9;border-radius:12px 12px 0 0;overflow:hidden;
+  background:
+    radial-gradient(120% 90% at 20% 110%,rgba(61,220,132,.35),transparent 60%),
+    radial-gradient(80% 80% at 100% 0%,rgba(78,168,222,.18),transparent 60%),
+    #0d1218;
+  border:1px solid var(--line);border-bottom:none;
+  display:flex;align-items:center;justify-content:center;
+}
+.mockBig{font-size:2.6rem;font-weight:800;letter-spacing:.08em;color:rgba(255,255,255,.88);}
+.mockNow,.mockLive{
+  position:absolute;display:flex;align-items:center;gap:7px;
+  padding:6px 11px;border-radius:7px;font-size:.74rem;font-weight:700;
+  background:rgba(7,9,12,.82);border:1px solid var(--line);
+}
+.mockNow{top:10px;right:10px;}
+.mockLive{left:10px;top:10px;color:var(--live);}
+.mDot{width:8px;height:8px;border-radius:50%;display:block;}
+.mDot.a{background:var(--a);}
+.mDot.live{background:var(--live);}
+.mockBar{
+  display:grid;grid-template-columns:auto repeat(3,1fr);gap:8px;align-items:center;
+  padding:12px;border:1px solid var(--line);border-radius:0 0 12px 12px;
+  background:rgba(9,12,17,.97);
+}
+.mockLabel{display:flex;align-items:center;gap:5px;color:var(--sub);font-size:.72rem;font-weight:700;padding-right:4px;}
+.mockLabel svg{display:block;}
+/* 実際の .pill を真似た飾り（押せない） */
+.mp{
+  display:inline-block;text-align:center;padding:6px 8px;border-radius:6px;
+  border:1px solid var(--line);background:rgba(255,255,255,.05);
+  color:var(--sub);font-size:.76rem;font-weight:700;white-space:nowrap;
+}
+.mp.on{color:#04060a;}
+.mp.on.main{background:var(--main);border-color:var(--main);}
+.mp.on.a{background:var(--a);border-color:var(--a);}
+.mp.on.b{background:var(--b);border-color:var(--b);}
+.heroMock figcaption{margin-top:10px;color:var(--sub);font-size:.76rem;text-align:center;}
+
+/* 入力欄の入れ物。#setup は JS が #setupSlot へ移してくる */
+.heroForm{
+  padding:20px 22px;border:1px solid var(--line);border-radius:14px;
+  background:linear-gradient(180deg,rgba(78,168,222,.07),rgba(78,168,222,0) 70%),var(--panel);
+}
+.formTitle{margin:0 0 14px;font-size:.95rem;font-weight:700;}
+.formTitle b{color:var(--a);}
+.formNote{margin:14px 0 0;color:var(--sub);font-size:.78rem;line-height:1.8;}
+
+/* --- 各セクション --- */
+.lpSec{margin-top:72px;}
+.secTitle{
+  margin:0 0 22px;font-size:1.35rem;font-weight:800;letter-spacing:.02em;
+}
+.features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;}
+.feature{
+  padding:20px;border:1px solid var(--line);border-radius:14px;background:var(--panel);
+  display:flex;flex-direction:column;
+}
+.feature h3{margin:18px 0 8px;font-size:1.05rem;font-weight:800;}
+.feature p{margin:0;color:var(--sub);font-size:.84rem;line-height:1.85;}
+.feature kbd,.subFeatures kbd{
+  font:inherit;font-size:.78em;font-weight:700;color:var(--text);
+  padding:1px 6px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;
+}
+/* 強みごとの小さな図。高さを揃えて見出しの位置を合わせる */
+.featVisual{
+  height:118px;border-radius:10px;background:#0b0e13;border:1px solid rgba(255,255,255,.04);
+  display:flex;flex-direction:column;justify-content:center;gap:10px;padding:0 18px;
+}
+.fvRoute{display:flex;align-items:center;gap:10px;}
+.fvKey{display:flex;align-items:center;gap:5px;width:4.6em;color:var(--sub);font-size:.78rem;font-weight:700;}
+.fvKey svg{display:block;}
+.fvArrow{color:var(--sub);}
+.fvRoute .mp{min-width:5.2em;}
+.fvMix{display:flex;align-items:center;gap:10px;}
+.fvName{width:3.4em;font-size:.72rem;font-weight:800;}
+.fvName.main{color:var(--main);}
+.fvName.a{color:var(--a);}
+.fvName.b{color:var(--b);}
+.fvMeter{flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.07);overflow:hidden;}
+.fvMeter i{display:block;height:100%;border-radius:4px;}
+.fvMeter i.main{background:var(--main);}
+.fvMeter i.a{background:var(--a);}
+.fvMeter i.b{background:var(--b);}
+.lv40{width:40%;}
+.lv65{width:65%;}
+.lv90{width:90%;}
+.featVisual:has(.fvPhone){align-items:center;padding:0;}
+.fvPhone{
+  width:62px;height:100px;border:2px solid #3a4352;border-radius:11px;padding:6px 5px;
+  display:flex;flex-direction:column;gap:4px;background:#07090c;
+}
+.fvPhoneScreen{
+  flex:1;border-radius:4px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(160deg,rgba(61,220,132,.45),rgba(61,220,132,.08));
+  font-size:.5rem;font-weight:800;letter-spacing:.05em;
+}
+.fvPhoneBar{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;}
+.fvPhoneBar i{height:7px;border-radius:2px;background:rgba(255,255,255,.12);}
+.fvPhoneBar i.main{background:var(--main);}
+.fvPhoneBar i.a{background:var(--a);}
+.fvPhoneBar i.b{background:var(--b);}
+
+.subFeatures{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;
+  margin:18px 0 0;padding:0;list-style:none;
+}
+.subFeatures li{padding:16px 18px;border:1px solid var(--line);border-radius:12px;}
+.subFeatures h3{margin:0 0 6px;font-size:.88rem;font-weight:800;}
+.subFeatures p{margin:0;color:var(--sub);font-size:.78rem;line-height:1.8;}
+
+.steps{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;
+  margin:0;padding:0;list-style:none;counter-reset:step;
+}
+.steps li{
+  counter-increment:step;position:relative;
+  padding:18px 18px 18px 64px;border:1px solid var(--line);border-radius:12px;
+}
+.steps li::before{
+  content:counter(step);position:absolute;left:18px;top:16px;
+  width:32px;height:32px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--a);color:#04060a;font-weight:800;font-size:.9rem;
+}
+.steps b,.useCases b{display:block;margin-bottom:4px;font-size:.92rem;}
+.steps span,.useCases span{display:block;color:var(--sub);font-size:.8rem;line-height:1.75;}
+
+.useCases{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;
+  margin:0;padding:0;list-style:none;
+}
+.useCases li{padding:16px 18px;border-left:3px solid var(--a);background:rgba(255,255,255,.02);border-radius:0 10px 10px 0;}
+.useCases li:nth-child(2){border-left-color:var(--b);}
+.useCases li:nth-child(3){border-left-color:var(--main);}
+
+/* 注意はミラー配信をする人にしか関係しないので、囲みで強調しない */
+.lpFoot{margin-top:72px;padding-top:24px;border-top:1px solid var(--line);}
+.footTitle{margin:0 0 7px;font-size:.7rem;font-weight:700;letter-spacing:.1em;color:var(--sub);}
+.lpFoot ul{margin:0;padding-left:1.25em;}
+.lpFoot li{color:var(--sub);font-size:.78rem;line-height:1.9;}
 .splashContact{
   margin:16px 0 0;font-size:.78rem;color:var(--sub);
 }
 .splashContact a{color:var(--a);text-decoration:none;font-weight:700;}
 .splashContact a:hover{text-decoration:underline;}
-/* ユースケースと注意。どちらも同じ体裁で並べる
-   （注意はミラー配信をする人にしか関係しないので、囲みで強調しない） */
-.cardSec{margin-top:24px;}
-.cardSec h2{
-  margin:0 0 7px;font-size:.7rem;font-weight:700;letter-spacing:.1em;
-  color:var(--sub);
+
+/* タブレット〜狭い PC: 1段に積む */
+@media (max-width:900px){
+  .hero{grid-template-columns:minmax(0,1fr);grid-template-areas:"copy" "form" "mock";gap:28px;}
+  .heroMock{max-width:560px;width:100%;justify-self:center;}
+  .features,.steps,.useCases{grid-template-columns:minmax(0,1fr);}
+  .subFeatures{grid-template-columns:repeat(2,minmax(0,1fr));}
 }
-.cardSec ul{margin:0;padding-left:1.25em;}
-.cardSec li,.cardSec p{color:var(--sub);font-size:.82rem;line-height:1.9;}
-.cardSec p{margin:10px 0 0;}
 
 /* ===== セットアップ ===== */
 #setup{
@@ -311,14 +481,13 @@ body.touch #toggleMore .chev{display:none;}
 #fsBtn.isFs .fsEnter{display:none;}
 #fsBtn.isFs .fsExit{display:block;}
 
-/* 狭い画面の導入画面では、#setup を固定ヘッダーではなく説明カードの
-   流れ（注意書きの下）に置く。JS が #setupSlot へ移動させる */
+/* 導入画面では、#setup を固定ヘッダーではなく LP の入力欄（キャッチコピーの
+   下）に置く。JS が #setupSlot へ移動させる */
 body.setupInCard #setup{
   position:static;z-index:auto;background:transparent;border-bottom:none;
   backdrop-filter:none;padding:0;max-height:none;overflow:visible;
 }
 #setupSlot:empty{display:none;}
-body.setupInCard #setupSlot{margin-top:22px;}
 /* 導入画面ではまだ再生していない。音声インジケーターは出さない */
 #splash:not(.gone) ~ #nowAudio{display:none;}
 
@@ -766,9 +935,15 @@ body.paused #playBtn .iconPlay{display:block;}
    横並びのままで足りるので、ここには入れない */
 @media (max-width:700px){
   /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
-  #splash{align-items:flex-start;padding:calc(var(--setupH) + 16px) 16px 52px;}
-  .card > h1,.card > h2{font-size:1.3rem;}
-  .card ol{font-size:.82rem;line-height:1.8;}
+  #splash{padding:28px 16px 52px;}
+  .hero h1{font-size:1.75rem;}
+  .hero .lead{font-size:.88rem;line-height:1.85;}
+  .heroForm{padding:16px;}
+  .lpSec,.lpFoot{margin-top:52px;}
+  .secTitle{font-size:1.15rem;margin-bottom:16px;}
+  .subFeatures{grid-template-columns:minmax(0,1fr);gap:10px;}
+  .mockBig{font-size:1.8rem;}
+  .mp{font-size:.7rem;padding:5px 4px;}
 
   #setup{
     padding:10px max(12px,env(safe-area-inset-left)) 10px max(12px,env(safe-area-inset-right));
