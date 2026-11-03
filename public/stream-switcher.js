@@ -1974,6 +1974,10 @@ setInterval(() => { if(Object.values(ready).some(Boolean)) renderTransport(); },
    ABRは「CSSピクセルサイズ × devicePixelRatio」で必要解像度を決める。
    モニターやOSスケーリングを変えたときの実効解像度を比較するための表示。
    ================================================================ */
+const QUALITY_LABEL = {
+  tiny:'144p', small:'240p', medium:'360p', large:'480p',
+  hd720:'720p', hd1080:'1080p', hd1440:'1440p', hd2160:'2160p', highres:'4320p'
+};
 function renderDiag(){
   if(!diagOn) return;
   const el = document.getElementById('layer-' + videoSrc);
@@ -1993,6 +1997,13 @@ function renderDiag(){
     'DPR         ' + dpr.toFixed(2) + '\n',
     '実効解像度  ', bold, ' px\n',
     '要求段階    ', em, '\n',
+    // 要求段階は寸法から見積もった値にすぎない。配信によっては埋め込みだと
+    // 寸法に関係なく低い画質に固定されるので、プレーヤーの実際の画質も並べる
+    '実際の画質  ' + (KEYS.filter(k => players[k]).map(k => {
+                      let q = null;
+                      try{ q = players[k].getPlaybackQuality(); }catch(e){}
+                      return SRC_LABEL[k] + ' ' + (QUALITY_LABEL[q] || q || '?');
+                    }).join(' / ') || '—') + '\n',
     '画面        ' + screen.width + ' x ' + screen.height + '\n',
     '省帯域      ' + (!ecoMode ? 'OFF' : (ecoSuspended ? 'ON（一時解除中）' : 'ON')) + '\n',
     '音量        ' + KEYS.filter(k => players[k]).map(k => SRC_LABEL[k] + ' ' + vol[k]).join(' / ') + '\n',
