@@ -77,7 +77,7 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 
 /* --- ヒーロー: 広い画面は [コピー | 画面イメージ] / [入力欄] の2段 --- */
 .hero{
-  display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);
+  display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);
   grid-template-areas:"copy mock" "form form";
   gap:28px 48px;align-items:center;
 }
@@ -87,11 +87,11 @@ button,.barLabel,#offsetLabel,#volLabel,.trim{user-select:none;-webkit-user-sele
 .brand{margin:0 0 18px;font-size:1rem;font-weight:800;letter-spacing:.04em;}
 .brand span{color:var(--a);}
 .hero h1{
-  margin:0 0 16px;font-size:2.5rem;line-height:1.3;font-weight:800;letter-spacing:.01em;
+  margin:0 0 16px;font-size:2.2rem;line-height:1.35;font-weight:800;letter-spacing:.01em;
 }
-/* 「分けられる」を MAIN→VC-A の色で。下の画面イメージと同じ組み合わせ */
+/* 「別々に」を MAIN→VC-A の色で。下の画面イメージと同じ組み合わせ */
 .hero h1 em{
-  font-style:normal;
+  font-style:normal;white-space:nowrap;
   background:linear-gradient(90deg,var(--main),var(--a));
   -webkit-background-clip:text;background-clip:text;color:transparent;
 }
@@ -936,7 +936,7 @@ body.paused #playBtn .iconPlay{display:block;}
 @media (max-width:700px){
   /* #setup が固定で上に居座るので、その実測高さ分だけ下げる */
   #splash{padding:28px 16px 52px;}
-  .hero h1{font-size:1.75rem;}
+  .hero h1{font-size:1.45rem;}
   .hero .lead{font-size:.88rem;line-height:1.85;}
   .heroForm{padding:16px;}
   .lpSec,.lpFoot{margin-top:52px;}
