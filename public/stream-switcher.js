@@ -2201,7 +2201,7 @@ function syncSetupHeight(){
     : Math.round(document.getElementById('setup').getBoundingClientRect().height);
   document.documentElement.style.setProperty('--setupH', h + 'px');
 }
-/* 狭い画面の導入画面では、注意書きを読んでから入力する順に並べたい。
+/* 導入画面（LP）では、キャッチコピーの下に入力欄を置きたい。画面幅に関係なく
    #setup を固定ヘッダーから説明カードの中へ移す。読み込んだら元へ戻す。 */
 const narrowMQ = matchMedia('(max-width:700px)');
 function placeSetup(){
@@ -2209,8 +2209,7 @@ function placeSetup(){
   if(location.protocol === 'file:') return;
   const setup = document.getElementById('setup');
   const slot = document.getElementById('setupSlot');
-  const inCard = narrowMQ.matches &&
-                 !document.getElementById('splash').classList.contains('gone');
+  const inCard = !document.getElementById('splash').classList.contains('gone');
   if(inCard){
     if(setup.parentNode !== slot) slot.appendChild(setup);
   }else if(setup.parentNode === slot){
